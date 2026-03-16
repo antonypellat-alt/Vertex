@@ -924,25 +924,60 @@ def chart_ef_quartiles(ef_q: dict) -> go.Figure:
     fig.update_layout(**_layout(height=220, yaxis_title="EF"))
     return fig
 
-
 # ══════════════════════════════════════════════════════════════════
-# 5 — PDF GENERATOR (v3)
+# 5 — PDF GENERATOR (v4 — design cohérent toutes pages)
 # ══════════════════════════════════════════════════════════════════
 
 def clean(text: str) -> str:
     text = unicodedata.normalize("NFKD", str(text))
     return text.encode("latin-1", errors="ignore").decode("latin-1")
 
+
+class VertexPDF(FPDF):
+    """FPDF subclass : fond dark + bandeau header + footer sur chaque page."""
+
+    def header(self):
+        # Fond pleine page
+        self.set_fill_color(8, 14, 20)
+        self.rect(0, 0, 210, 297, 'F')
+        # Filet supérieur cyan
+        self.set_draw_color(65, 200, 232)
+        self.set_line_width(0.6)
+        self.line(0, 10, 210, 10)
+        # Label VERTEX en haut à gauche (sauf page 1 où le grand titre prend la place)
+        if self.page_no() > 1:
+            self.set_xy(15, 3)
+            self.set_font("Helvetica", "B", 7)
+            self.set_text_color(65, 200, 232)
+            self.cell(40, 5, clean("VERTEX"), border=0)
+            self.set_font("Helvetica", "", 6)
+            self.set_text_color(42, 64, 80)
+            self.cell(0, 5, clean("PERFORMANCE INTELLIGENCE  |  RACE ANALYSIS v4"), border=0, ln=True)
+        self.set_y(14)  # marge top après header
+
+    def footer(self):
+        self.set_y(-12)
+        # Filet inférieur
+        self.set_draw_color(21, 32, 48)
+        self.set_line_width(0.3)
+        self.line(15, self.get_y(), 195, self.get_y())
+        self.ln(2)
+        self.set_font("Courier", "", 6)
+        self.set_text_color(30, 50, 60)
+        self.cell(0, 4,
+            clean(f"VERTEX v4.0  —  GAP Minetti (2002)  —  p.{self.page_no()}"),
+            align="C")
+
+
 def generate_pdf(info, fi, flat_v, profile, grade_df,
                  zones, drift, cad_analysis, splits, recs,
                  fcmax, email="") -> bytes:
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
+
+    pdf = VertexPDF()
+    pdf.set_auto_page_break(auto=True, margin=18)
     pdf.add_page()
 
-    def bg():
-        pdf.set_fill_color(8, 14, 20)
-        pdf.rect(0, 0, 210, 297, 'F')
+    # ── helpers ─────────────────────────────────────────────────
 
     def sep():
         pdf.set_draw_color(21, 32, 48)
@@ -951,13 +986,16 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         pdf.ln(4)
 
     def section(title):
+        pdf.ln(2)
         sep()
         pdf.set_font("Courier", "", 7)
         pdf.set_text_color(42, 64, 80)
+        pdf.set_x(15)
         pdf.cell(0, 5, clean(f"-- {title} --"), ln=True)
         pdf.ln(2)
 
     def kpi(label, value, color=(65, 200, 232)):
+        pdf.set_x(15)
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(42, 64, 80)
         pdf.cell(75, 6, clean(label), border=0)
@@ -965,132 +1003,228 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         pdf.set_text_color(*color)
         pdf.cell(0, 6, clean(value), ln=True)
 
-    bg()
-
-    pdf.set_font("Helvetica", "B", 32)
+    # ── PAGE 1 : HEADER ────────────────────────────────────────
+    pdf.ln(4)
+    pdf.set_font("Helvetica", "B", 36)
     pdf.set_text_color(65, 200, 232)
     pdf.cell(0, 14, clean("VERTEX"), ln=True, align="C")
+
     pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(42, 64, 80)
-    pdf.cell(0, 5, clean("PERFORMANCE INTELLIGENCE  |  RACE ANALYSIS v3"), ln=True, align="C")
+    pdf.cell(0, 5, clean("PERFORMANCE INTELLIGENCE  |  RACE ANALYSIS v4"), ln=True, align="C")
+
     pdf.set_text_color(100, 130, 150)
     pdf.cell(0, 5, clean(f"{info['name']}  ·  {datetime.now().strftime('%d/%m/%Y')}"), ln=True, align="C")
-    pdf.ln(4)
+    pdf.ln(2)
 
+    # Badge profil
+    badge_colors = {
+        "PROFIL ENDURANCE": (65, 200, 232),
+        "PROFIL EXPLOSIF":  (200, 168, 75),
+        "PROFIL FRAGILE":   (200, 72, 80),
+    }
+    badge_rgb = badge_colors.get(profile, (100, 130, 150))
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(*badge_rgb)
+    pdf.cell(0, 8, clean(f"[ {profile} ]"), ln=True, align="C")
+    pdf.ln(2)
+
+    # ── MÉTRIQUES ──────────────────────────────────────────────
     section("METRIQUES DE COURSE")
-    dist_km = info['distance_km']
     total_s = info['total_time_s']
     h, m, s = int(total_s//3600), int((total_s%3600)//60), int(total_s%60)
-    kpi("Distance :", f"{dist_km:.1f} km")
-    kpi("Temps total :", f"{h}h{m:02d}'{s:02d}\"")
-    kpi("D+ :", f"{int(info['elevation_gain'])} m")
-    kpi("Allure moyenne :", f"{v_to_pace(info['avg_velocity_ms'])} /km")
-    kpi("Allure de base (plat) :", f"{v_to_pace(flat_v)} /km")
-    kpi("Altitude max :", f"{int(info['max_elevation'])} m")
+    kpi("Distance :",            f"{info['distance_km']:.1f} km")
+    kpi("Temps total :",         f"{h}h{m:02d}'{s:02d}\"")
+    kpi("D+ :",                  f"{int(info['elevation_gain'])} m")
+    kpi("D- :",                  f"{int(info['elevation_loss'])} m")
+    kpi("Allure moyenne :",      f"{v_to_pace(info['avg_velocity_ms'])} /km")
+    kpi("Allure de base (plat):", f"{v_to_pace(flat_v)} /km")
+    kpi("Altitude max :",        f"{int(info['max_elevation'])} m")
     if info.get('hr_mean'):
-        kpi("FC moyenne :", f"{int(info['hr_mean'])} bpm")
+        kpi("FC moyenne :",      f"{int(info['hr_mean'])} bpm  ({info['hr_mean']/fcmax*100:.0f}% FCmax)")
         kpi("FC max observee :", f"{int(info['hr_max'])} bpm")
     if info.get('cad_mean'):
         kpi("Cadence moyenne :", f"{int(info['cad_mean'])} ppm")
-    kpi("Classification :", profile)
+    kpi("FCmax reference :",     f"{fcmax} bpm")
 
+    # ── ZONES FC ───────────────────────────────────────────────
     if zones:
         section("ZONES DE FREQUENCE CARDIAQUE")
+        zone_rgb = {
+            'Z1': (26,  58,  74),
+            'Z2': (26,  80,  96),
+            'Z3': (26, 138, 170),
+            'Z4': (200,168,  75),
+            'Z5': (200, 72,  80),
+        }
         for z in ['Z1','Z2','Z3','Z4','Z5']:
-            bpm = zones['bpm'].get(z, (0,0))
+            bpm = zones['bpm'].get(z, (0, 0))
             pct = zones['pct'].get(z, 0)
             t   = zones['time'].get(z, 0)
-            mm  = int(t//60)
+            mm  = int(t // 60)
+            rgb = zone_rgb[z]
+            pdf.set_x(15)
+            pdf.set_font("Helvetica", "B", 8)
+            pdf.set_text_color(*rgb)
+            pdf.cell(12, 5, clean(z), border=0)
             pdf.set_font("Helvetica", "", 8)
-            pdf.set_text_color(42, 64, 80)
-            pdf.cell(18, 5, clean(f"{z} :"), border=0)
             pdf.set_text_color(100, 130, 150)
             pdf.cell(45, 5, clean(f"{bpm[0]}-{bpm[1]} bpm"), border=0)
             pdf.set_text_color(65, 200, 232)
-            pdf.cell(0, 5, clean(f"{mm} min  ({pct:.0f}%)"), ln=True)
+            pdf.cell(30, 5, clean(f"{mm} min"), border=0)
+            pdf.set_text_color(42, 64, 80)
+            pdf.cell(0, 5, clean(f"({pct:.0f}%)"), ln=True)
 
+    # ── GAP ────────────────────────────────────────────────────
     section("ANALYSE DE FATIGUE GAP")
     dr = fi['decay_ratio']
     dp = fi['decay_pct']
     kpi("Ratio Q4/Q1 (GAP) :", f"{dr:.3f}" if not math.isnan(dr) else "N/A")
-    kpi("Perte de vitesse :", f"{dp:.1f}%" if not math.isnan(dp) else "N/A")
+    kpi("Perte de vitesse :",  f"{dp:.1f}%" if not math.isnan(dp) else "N/A",
+        color=(200,72,80) if not math.isnan(dp) and dp > 10 else
+              (200,168,75) if not math.isnan(dp) and dp > 5 else (65,200,232))
     for q, v in fi['quartiles'].items():
         val = f"{v:.3f} m/s  ({v_to_pace(v)} /km)" if not math.isnan(v) else "N/A"
-        pdf.set_font("Helvetica", "", 8); pdf.set_text_color(42, 64, 80)
+        pdf.set_x(15)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(42, 64, 80)
         pdf.cell(30, 5, clean(q + " :"), border=0)
         pdf.set_text_color(100, 130, 150)
         pdf.cell(0, 5, clean(val), ln=True)
 
+    # ── DÉCOUPLAGE ─────────────────────────────────────────────
     if drift.get('drift_pct') is not None:
         section("DECOUPLAGE CARDIAQUE")
         kpi("EF 1ere moitie (plat) :", f"{drift['ef1']:.3f}" if drift['ef1'] else "N/A")
         kpi("EF 2eme moitie (plat) :", f"{drift['ef2']:.3f}" if drift['ef2'] else "N/A")
         drift_val = drift['drift_pct']
-        color = (200, 72, 80) if drift_val < -5 else (200, 168, 75) if drift_val < -2 else (65, 200, 232)
-        kpi("Derive EF :", f"{drift_val:.1f}%", color=color)
+        d_color = (200,72,80) if drift_val < -5 else (200,168,75) if drift_val < -2 else (65,200,232)
+        kpi("Derive EF :", f"{drift_val:.1f}%", color=d_color)
 
+    # ── PROFIL PENTE ───────────────────────────────────────────
     section("PROFIL PENTE")
     for _, row in grade_df.iterrows():
-        pdf.set_font("Helvetica", "", 8); pdf.set_text_color(42, 64, 80)
+        pdf.set_x(15)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(42, 64, 80)
         pdf.cell(40, 5, clean(str(row['Tranche pente']) + " :"), border=0)
         pdf.set_text_color(100, 130, 150)
         pdf.cell(0, 5, clean(f"{row['Allure (min/km)']} /km"), ln=True)
 
+    # ── CADENCE ────────────────────────────────────────────────
     if cad_analysis.get('mean'):
         section("ANALYSE CADENCE")
-        kpi("Cadence moyenne :", f"{cad_analysis['mean']:.0f} ppm")
+        kpi("Cadence moyenne :",          f"{cad_analysis['mean']:.0f} ppm")
         kpi("Zone optimale (85-100ppm) :", f"{cad_analysis['optimal_pct']:.0f}% du temps")
         for k, v in cad_analysis['dist'].items():
             if v > 1:
-                pdf.set_font("Helvetica", "", 8); pdf.set_text_color(42, 64, 80)
+                is_opt = k in ['85-90', '90-95', '95-100']
+                pdf.set_x(15)
+                pdf.set_font("Helvetica", "", 8)
+                pdf.set_text_color(42, 64, 80)
                 pdf.cell(40, 5, clean(k + " ppm :"), border=0)
-                pdf.set_text_color(100, 130, 150)
+                pdf.set_text_color(65,200,232) if is_opt else pdf.set_text_color(100,130,150)
                 pdf.cell(0, 5, clean(f"{v:.0f}%"), ln=True)
 
+    # ── SPLITS ─────────────────────────────────────────────────
     if splits:
-        section("SPLITS PAR KM (resume)")
+        section("SPLITS PAR KM")
+        # En-tête tableau
+        pdf.set_x(15)
         pdf.set_font("Helvetica", "B", 7)
         pdf.set_text_color(42, 64, 80)
-        cols = ["Km", "Allure", "GAP", "D+", "FC", "Cad"]
-        widths = [12, 22, 22, 15, 18, 18]
-        for col, w in zip(cols, widths):
+        for col, w in zip(["Km","Allure","GAP","D+","D-","FC","Cad"],
+                          [12,   22,     22,   15,  15,  18,  18]):
             pdf.cell(w, 5, clean(col), border=0)
         pdf.ln()
+
+        # Ligne fine de séparation
+        pdf.set_draw_color(21, 32, 48)
+        pdf.set_line_width(0.2)
+        pdf.line(15, pdf.get_y(), 137, pdf.get_y())
+        pdf.ln(2)
+
         pdf.set_font("Helvetica", "", 7)
-        for sp in splits[::2]:
-            pdf.set_text_color(100, 130, 150)
+        valid_paces = [sp['pace_s'] for sp in splits if sp.get('pace_s')]
+        med_pace = sum(valid_paces) / len(valid_paces) if valid_paces else None
+
+        for sp in splits:
+            pace_s = sp.get('pace_s')
+            if pace_s and med_pace:
+                if pace_s < med_pace * 0.92:
+                    pace_rgb = (65, 200, 232)
+                elif pace_s > med_pace * 1.08:
+                    pace_rgb = (200, 72, 80)
+                else:
+                    pace_rgb = (100, 130, 150)
+            else:
+                pace_rgb = (100, 130, 150)
+
+            pdf.set_x(15)
+            pdf.set_text_color(42, 64, 80)
             pdf.cell(12, 4, clean(str(sp['km'])), border=0)
+            pdf.set_text_color(*pace_rgb)
             pdf.cell(22, 4, clean(sp['pace']), border=0)
+            pdf.set_text_color(100, 130, 150)
             pdf.cell(22, 4, clean(sp['gap']), border=0)
+            pdf.set_text_color(65, 200, 232)
             pdf.cell(15, 4, clean(f"+{sp['d_pos']}m"), border=0)
-            pdf.cell(18, 4, clean(str(sp['hr']) if sp['hr'] else "--"), border=0)
-            pdf.cell(18, 4, clean(str(sp['cadence']) if sp['cadence'] else "--"), border=0)
+            pdf.set_text_color(200, 72, 80)
+            pdf.cell(15, 4, clean(f"-{sp['d_neg']}m"), border=0)
+            hr_val = str(sp['hr']) if sp['hr'] else "--"
+            hr_rgb = (200,72,80) if sp['hr'] and sp['hr'] > fcmax*0.92 else (100,130,150)
+            pdf.set_text_color(*hr_rgb)
+            pdf.cell(18, 4, clean(hr_val), border=0)
+            cad_val = str(sp['cadence']) if sp['cadence'] else "--"
+            cad_rgb = (65,200,232) if sp['cadence'] and 85 <= sp['cadence'] <= 100 else (100,130,150)
+            pdf.set_text_color(*cad_rgb)
+            pdf.cell(18, 4, clean(cad_val), border=0)
             pdf.ln()
 
+    # ── RECOMMANDATIONS COACH ──────────────────────────────────
     section("RECOMMANDATIONS COACH")
-    level_colors = {'info': (65,200,232), 'warn': (200,168,75), 'crit': (200,72,80)}
+    level_colors = {
+        'info': (65, 200, 232),
+        'warn': (200, 168, 75),
+        'crit': (200, 72, 80),
+    }
+    level_labels = {
+        'info': 'INFO',
+        'warn': 'ATTENTION',
+        'crit': 'PRIORITAIRE',
+    }
     for i, rec in enumerate(recs, 1):
-        color = level_colors.get(rec['level'], (100,130,150))
-        pdf.set_font("Helvetica", "B", 8)
-        pdf.set_text_color(*color)
+        rgb = level_colors.get(rec['level'], (100, 130, 150))
+        lbl = level_labels.get(rec['level'], 'INFO')
+        pdf.set_x(15)
+        pdf.set_font("Courier", "", 6)
+        pdf.set_text_color(*rgb)
+        pdf.cell(0, 4, clean(f"[{lbl}]"), ln=True)
+        pdf.set_x(15)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_text_color(*rgb)
         pdf.cell(8, 5, clean(f"{i}."), border=0)
         pdf.cell(0, 5, clean(rec['title']), ln=True)
+        pdf.set_x(15)
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(100, 130, 150)
-        pdf.multi_cell(0, 5, clean(rec['body']))
-        pdf.ln(1)
+        pdf.multi_cell(180, 5, clean(rec['body']))
+        pdf.ln(2)
 
+    # ── PIED DERNIER ──────────────────────────────────────────
+    pdf.ln(4)
     sep()
     pdf.set_font("Courier", "", 6)
     pdf.set_text_color(30, 50, 60)
     if email:
+        pdf.set_x(15)
         pdf.cell(0, 4, clean(f"Plans envoyes a : {email}"), ln=True, align="C")
+    pdf.set_x(15)
     pdf.cell(0, 4,
-        clean(f"VERTEX v3.0 — GAP Minetti (2002) — FCmax: {fcmax} bpm — {datetime.now().strftime('%d/%m/%Y')}"),
+        clean(f"FCmax : {fcmax} bpm  —  {datetime.now().strftime('%d/%m/%Y')}  —  VERTEX v4.0"),
         ln=True, align="C")
 
     return bytes(pdf.output())
-
 
 # ══════════════════════════════════════════════════════════════════
 # 6 — UI
