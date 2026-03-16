@@ -1,7 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
 ║         VERTEX — GPX Performance Analyzer  |  app.py            ║
-║         FC · Cadence · GAP · Zones · Découplage · v3.0          ║
+║         FC · Cadence · GAP · Zones · Découplage · v4.0          ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -428,27 +428,44 @@ ZONE_NAMES = {
     'Z5': 'VO2max / Anaérobie',
 }
 
-def compute_hr_zones(df: pd.DataFrame, fcmax: int) -> dict:
-    thresholds = {
-        'Z1': (0,    0.60),
-        'Z2': (0.60, 0.70),
-        'Z3': (0.70, 0.80),
-        'Z4': (0.80, 0.90),
-        'Z5': (0.90, 1.01),
-    }
-    zone_time = {z: 0.0 for z in thresholds}
+def compute_hr_zones(df: pd.DataFrame, fcmax: int,
+                     custom_zones: dict = None) -> dict:
+    """
+    custom_zones : {'Z1': (0, 120), 'Z2': (120, 140), ...} en bpm
+    Si None → calcul automatique par % FCmax standard
+    """
+    if custom_zones:
+        thresholds_bpm = custom_zones
+    else:
+        thresholds_bpm = {
+            'Z1': (0,                  int(0.60 * fcmax)),
+            'Z2': (int(0.60 * fcmax),  int(0.70 * fcmax)),
+            'Z3': (int(0.70 * fcmax),  int(0.80 * fcmax)),
+            'Z4': (int(0.80 * fcmax),  int(0.90 * fcmax)),
+            'Z5': (int(0.90 * fcmax),  int(1.01 * fcmax)),
+        }
+
+    zone_time = {z: 0.0 for z in thresholds_bpm}
     valid = df[df['hr'] > 50].copy()
     valid['dt'] = valid['time_s'].diff().fillna(0).clip(0, 30)
+
     for _, row in valid.iterrows():
-        pct = row['hr'] / fcmax
-        for z, (lo, hi) in thresholds.items():
-            if lo <= pct < hi:
+        hr = row['hr']
+        for z, (lo, hi) in thresholds_bpm.items():
+            if lo <= hr < hi:
                 zone_time[z] += row['dt']
                 break
+
     total = sum(zone_time.values())
-    zone_pct = {z: (t/total*100 if total > 0 else 0) for z, t in zone_time.items()}
-    zone_bpm = {z: (int(lo*fcmax), int(hi*fcmax)) for z, (lo, hi) in thresholds.items()}
-    return {'time': zone_time, 'pct': zone_pct, 'bpm': zone_bpm, 'fcmax': fcmax}
+    zone_pct = {z: (t / total * 100 if total > 0 else 0)
+                for z, t in zone_time.items()}
+
+    return {
+        'time': zone_time,
+        'pct':  zone_pct,
+        'bpm':  thresholds_bpm,
+        'fcmax': fcmax,
+    }
 
 
 # ── Découplage cardiaque ────────────────────────────────────────
@@ -731,10 +748,6 @@ PLOTLY_LAYOUT = dict(
 )
 
 def _layout(**overrides):
-    """
-    Fusionne PLOTLY_LAYOUT avec les overrides en excluant automatiquement
-    toute clé déjà présente dans overrides — élimine tous les doublons.
-    """
     base = {k: v for k, v in PLOTLY_LAYOUT.items() if k not in overrides}
     base.update(overrides)
     return base
@@ -769,14 +782,21 @@ def chart_pace(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def chart_hr(df: pd.DataFrame, fcmax: int) -> go.Figure:
+def chart_hr(df: pd.DataFrame, fcmax: int, custom_zones: dict = None) -> go.Figure:
     dist_km = df['distance'] / 1000
     fig = go.Figure()
-    zone_bounds = [(0, 0.60, '#1A3A4A'), (0.60, 0.70, '#1A5060'),
-                   (0.70, 0.80, '#1A8AAA'), (0.80, 0.90, '#C8A84B'), (0.90, 1.0, '#C84850')]
-    for lo, hi, color in zone_bounds:
-        fig.add_hrect(y0=lo*fcmax, y1=hi*fcmax,
-                      fillcolor=color, opacity=0.08, line_width=0)
+
+    if custom_zones:
+        zone_colors = ['#1A3A4A', '#1A5060', '#1A8AAA', '#C8A84B', '#C84850']
+        for (z, (lo, hi)), color in zip(custom_zones.items(), zone_colors):
+            fig.add_hrect(y0=lo, y1=hi, fillcolor=color, opacity=0.08, line_width=0)
+    else:
+        zone_bounds = [(0, 0.60, '#1A3A4A'), (0.60, 0.70, '#1A5060'),
+                       (0.70, 0.80, '#1A8AAA'), (0.80, 0.90, '#C8A84B'), (0.90, 1.0, '#C84850')]
+        for lo, hi, color in zone_bounds:
+            fig.add_hrect(y0=lo*fcmax, y1=hi*fcmax,
+                          fillcolor=color, opacity=0.08, line_width=0)
+
     fig.add_trace(go.Scatter(
         x=dist_km, y=df['hr'],
         mode='lines', line=dict(color='#C84850', width=1.5),
@@ -924,6 +944,7 @@ def chart_ef_quartiles(ef_q: dict) -> go.Figure:
     fig.update_layout(**_layout(height=220, yaxis_title="EF"))
     return fig
 
+
 # ══════════════════════════════════════════════════════════════════
 # 5 — PDF GENERATOR (v4 — design cohérent toutes pages)
 # ══════════════════════════════════════════════════════════════════
@@ -944,7 +965,7 @@ class VertexPDF(FPDF):
         self.set_draw_color(65, 200, 232)
         self.set_line_width(0.6)
         self.line(0, 10, 210, 10)
-        # Label VERTEX en haut à gauche (sauf page 1 où le grand titre prend la place)
+        # Label VERTEX en haut (sauf page 1 où le grand titre prend la place)
         if self.page_no() > 1:
             self.set_xy(15, 3)
             self.set_font("Helvetica", "B", 7)
@@ -953,11 +974,10 @@ class VertexPDF(FPDF):
             self.set_font("Helvetica", "", 6)
             self.set_text_color(42, 64, 80)
             self.cell(0, 5, clean("PERFORMANCE INTELLIGENCE  |  RACE ANALYSIS v4"), border=0, ln=True)
-        self.set_y(14)  # marge top après header
+        self.set_y(14)
 
     def footer(self):
         self.set_y(-12)
-        # Filet inférieur
         self.set_draw_color(21, 32, 48)
         self.set_line_width(0.3)
         self.line(15, self.get_y(), 195, self.get_y())
@@ -971,7 +991,7 @@ class VertexPDF(FPDF):
 
 def generate_pdf(info, fi, flat_v, profile, grade_df,
                  zones, drift, cad_analysis, splits, recs,
-                 fcmax, email="") -> bytes:
+                 fcmax, custom_zones=None, email="") -> bytes:
 
     pdf = VertexPDF()
     pdf.set_auto_page_break(auto=True, margin=18)
@@ -1033,19 +1053,19 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     section("METRIQUES DE COURSE")
     total_s = info['total_time_s']
     h, m, s = int(total_s//3600), int((total_s%3600)//60), int(total_s%60)
-    kpi("Distance :",            f"{info['distance_km']:.1f} km")
-    kpi("Temps total :",         f"{h}h{m:02d}'{s:02d}\"")
-    kpi("D+ :",                  f"{int(info['elevation_gain'])} m")
-    kpi("D- :",                  f"{int(info['elevation_loss'])} m")
-    kpi("Allure moyenne :",      f"{v_to_pace(info['avg_velocity_ms'])} /km")
-    kpi("Allure de base (plat):", f"{v_to_pace(flat_v)} /km")
-    kpi("Altitude max :",        f"{int(info['max_elevation'])} m")
+    kpi("Distance :",             f"{info['distance_km']:.1f} km")
+    kpi("Temps total :",          f"{h}h{m:02d}'{s:02d}\"")
+    kpi("D+ :",                   f"{int(info['elevation_gain'])} m")
+    kpi("D- :",                   f"{int(info['elevation_loss'])} m")
+    kpi("Allure moyenne :",       f"{v_to_pace(info['avg_velocity_ms'])} /km")
+    kpi("Allure de base (plat) :", f"{v_to_pace(flat_v)} /km")
+    kpi("Altitude max :",         f"{int(info['max_elevation'])} m")
     if info.get('hr_mean'):
-        kpi("FC moyenne :",      f"{int(info['hr_mean'])} bpm  ({info['hr_mean']/fcmax*100:.0f}% FCmax)")
-        kpi("FC max observee :", f"{int(info['hr_max'])} bpm")
+        kpi("FC moyenne :",       f"{int(info['hr_mean'])} bpm  ({info['hr_mean']/fcmax*100:.0f}% FCmax)")
+        kpi("FC max observee :",  f"{int(info['hr_max'])} bpm")
     if info.get('cad_mean'):
-        kpi("Cadence moyenne :", f"{int(info['cad_mean'])} ppm")
-    kpi("FCmax reference :",     f"{fcmax} bpm")
+        kpi("Cadence moyenne :",  f"{int(info['cad_mean'])} ppm")
+    kpi("FCmax reference :",      f"{fcmax} bpm" + (" (custom zones)" if custom_zones else " (calcul auto %)"))
 
     # ── ZONES FC ───────────────────────────────────────────────
     if zones:
@@ -1054,10 +1074,10 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
             'Z1': (26,  58,  74),
             'Z2': (26,  80,  96),
             'Z3': (26, 138, 170),
-            'Z4': (200,168,  75),
-            'Z5': (200, 72,  80),
+            'Z4': (200, 168,  75),
+            'Z5': (200,  72,  80),
         }
-        for z in ['Z1','Z2','Z3','Z4','Z5']:
+        for z in ['Z1', 'Z2', 'Z3', 'Z4', 'Z5']:
             bpm = zones['bpm'].get(z, (0, 0))
             pct = zones['pct'].get(z, 0)
             t   = zones['time'].get(z, 0)
@@ -1081,8 +1101,8 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     dp = fi['decay_pct']
     kpi("Ratio Q4/Q1 (GAP) :", f"{dr:.3f}" if not math.isnan(dr) else "N/A")
     kpi("Perte de vitesse :",  f"{dp:.1f}%" if not math.isnan(dp) else "N/A",
-        color=(200,72,80) if not math.isnan(dp) and dp > 10 else
-              (200,168,75) if not math.isnan(dp) and dp > 5 else (65,200,232))
+        color=(200, 72, 80) if not math.isnan(dp) and dp > 10 else
+              (200, 168, 75) if not math.isnan(dp) and dp > 5 else (65, 200, 232))
     for q, v in fi['quartiles'].items():
         val = f"{v:.3f} m/s  ({v_to_pace(v)} /km)" if not math.isnan(v) else "N/A"
         pdf.set_x(15)
@@ -1098,7 +1118,7 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         kpi("EF 1ere moitie (plat) :", f"{drift['ef1']:.3f}" if drift['ef1'] else "N/A")
         kpi("EF 2eme moitie (plat) :", f"{drift['ef2']:.3f}" if drift['ef2'] else "N/A")
         drift_val = drift['drift_pct']
-        d_color = (200,72,80) if drift_val < -5 else (200,168,75) if drift_val < -2 else (65,200,232)
+        d_color = (200, 72, 80) if drift_val < -5 else (200, 168, 75) if drift_val < -2 else (65, 200, 232)
         kpi("Derive EF :", f"{drift_val:.1f}%", color=d_color)
 
     # ── PROFIL PENTE ───────────────────────────────────────────
@@ -1114,7 +1134,7 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     # ── CADENCE ────────────────────────────────────────────────
     if cad_analysis.get('mean'):
         section("ANALYSE CADENCE")
-        kpi("Cadence moyenne :",          f"{cad_analysis['mean']:.0f} ppm")
+        kpi("Cadence moyenne :",           f"{cad_analysis['mean']:.0f} ppm")
         kpi("Zone optimale (85-100ppm) :", f"{cad_analysis['optimal_pct']:.0f}% du temps")
         for k, v in cad_analysis['dist'].items():
             if v > 1:
@@ -1123,22 +1143,23 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
                 pdf.set_font("Helvetica", "", 8)
                 pdf.set_text_color(42, 64, 80)
                 pdf.cell(40, 5, clean(k + " ppm :"), border=0)
-                pdf.set_text_color(65,200,232) if is_opt else pdf.set_text_color(100,130,150)
+                if is_opt:
+                    pdf.set_text_color(65, 200, 232)
+                else:
+                    pdf.set_text_color(100, 130, 150)
                 pdf.cell(0, 5, clean(f"{v:.0f}%"), ln=True)
 
     # ── SPLITS ─────────────────────────────────────────────────
     if splits:
         section("SPLITS PAR KM")
-        # En-tête tableau
         pdf.set_x(15)
         pdf.set_font("Helvetica", "B", 7)
         pdf.set_text_color(42, 64, 80)
-        for col, w in zip(["Km","Allure","GAP","D+","D-","FC","Cad"],
-                          [12,   22,     22,   15,  15,  18,  18]):
+        for col, w in zip(["Km", "Allure", "GAP", "D+", "D-", "FC", "Cad"],
+                          [12,   22,       22,    15,   15,   18,   18]):
             pdf.cell(w, 5, clean(col), border=0)
         pdf.ln()
 
-        # Ligne fine de séparation
         pdf.set_draw_color(21, 32, 48)
         pdf.set_line_width(0.2)
         pdf.line(15, pdf.get_y(), 137, pdf.get_y())
@@ -1172,11 +1193,11 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
             pdf.set_text_color(200, 72, 80)
             pdf.cell(15, 4, clean(f"-{sp['d_neg']}m"), border=0)
             hr_val = str(sp['hr']) if sp['hr'] else "--"
-            hr_rgb = (200,72,80) if sp['hr'] and sp['hr'] > fcmax*0.92 else (100,130,150)
+            hr_rgb = (200, 72, 80) if sp['hr'] and sp['hr'] > fcmax * 0.92 else (100, 130, 150)
             pdf.set_text_color(*hr_rgb)
             pdf.cell(18, 4, clean(hr_val), border=0)
             cad_val = str(sp['cadence']) if sp['cadence'] else "--"
-            cad_rgb = (65,200,232) if sp['cadence'] and 85 <= sp['cadence'] <= 100 else (100,130,150)
+            cad_rgb = (65, 200, 232) if sp['cadence'] and 85 <= sp['cadence'] <= 100 else (100, 130, 150)
             pdf.set_text_color(*cad_rgb)
             pdf.cell(18, 4, clean(cad_val), border=0)
             pdf.ln()
@@ -1226,6 +1247,7 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
 
     return bytes(pdf.output())
 
+
 # ══════════════════════════════════════════════════════════════════
 # 6 — UI
 # ══════════════════════════════════════════════════════════════════
@@ -1234,7 +1256,7 @@ def render_landing():
     st.markdown("<br>", unsafe_allow_html=True)
     col_l, col_c, col_r = st.columns([1, 2, 1])
     with col_c:
-        st.markdown('<div class="hud-label">// SYSTEM ONLINE — v3.0 //</div>', unsafe_allow_html=True)
+        st.markdown('<div class="hud-label">// SYSTEM ONLINE — v4.0 //</div>', unsafe_allow_html=True)
         st.markdown('<div class="vertex-title">VERTEX</div>', unsafe_allow_html=True)
         st.markdown('<div class="vertex-sub">PERFORMANCE INTELLIGENCE</div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1253,18 +1275,66 @@ def render_landing():
             help="Garmin Connect → Exporter l'original (avec FC et cadence)",
             label_visibility="visible",
         )
+
         if uploaded:
             st.session_state['gpx_bytes']    = uploaded.read()
             st.session_state['gpx_filename'] = uploaded.name
-            st.rerun()
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            with st.expander("⚙  PARAMÈTRES PHYSIOLOGIQUES  —  optionnel", expanded=True):
+                st.markdown("""
+                <div style="font-family:'DM Mono',monospace;font-size:0.62rem;
+                color:#2A4050;letter-spacing:0.15em;margin-bottom:12px;">
+                Sans saisie → calcul automatique par % FCmax standard
+                </div>""", unsafe_allow_html=True)
+
+                fcmax_input = st.number_input(
+                    "FCmax (bpm)", min_value=150, max_value=220,
+                    value=190, step=1, key="landing_fcmax"
+                )
+                st.session_state['fcmax_override'] = int(fcmax_input)
+
+                use_custom = st.toggle(
+                    "Je connais mes zones exactes (bornes en bpm)",
+                    value=False, key="use_custom_zones"
+                )
+
+                if use_custom:
+                    st.markdown("""
+                    <div style="font-family:'DM Mono',monospace;font-size:0.6rem;
+                    color:#2A4050;letter-spacing:0.12em;margin:8px 0 4px;">
+                    SAISIR LA BORNE BASSE DE CHAQUE ZONE (bpm)
+                    </div>""", unsafe_allow_html=True)
+
+                    zc1, zc2, zc3, zc4, zc5 = st.columns(5)
+                    z1_lo = zc1.number_input("Z1 ↓", 50,  180, 100, key="z1_lo")
+                    z2_lo = zc2.number_input("Z2 ↓", 80,  190, 120, key="z2_lo")
+                    z3_lo = zc3.number_input("Z3 ↓", 100, 200, 140, key="z3_lo")
+                    z4_lo = zc4.number_input("Z4 ↓", 120, 210, 155, key="z4_lo")
+                    z5_lo = zc5.number_input("Z5 ↓", 140, 220, 170, key="z5_lo")
+
+                    st.session_state['custom_zones'] = {
+                        'Z1': (0,     z1_lo),
+                        'Z2': (z1_lo, z2_lo),
+                        'Z3': (z2_lo, z3_lo),
+                        'Z4': (z3_lo, z4_lo),
+                        'Z5': (z4_lo, int(fcmax_input) + 10),
+                    }
+                else:
+                    st.session_state.pop('custom_zones', None)
+
+                col_launch, _ = st.columns([1, 2])
+                with col_launch:
+                    if st.button("▲  LANCER L'ANALYSE"):
+                        st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     for col, label, desc in [
-        (c1, "GAP ENGINE",     "Grade-Adjusted Pace · Minetti 2002 · Profil fatigue 4 quartiles"),
-        (c2, "ZONES FC",       "Distribution Z1→Z5 · Découplage cardiaque · EF par segment"),
-        (c3, "CADENCE",        "Distribution · Régularité · Zones optimales · Évolution"),
-        (c4, "COACH REPORT",   "6 recommandations personnalisées · Export PDF complet"),
+        (c1, "GAP ENGINE",   "Grade-Adjusted Pace · Minetti 2002 · Profil fatigue 4 quartiles"),
+        (c2, "ZONES FC",     "Distribution Z1→Z5 · Zones custom · Découplage cardiaque · EF"),
+        (c3, "CADENCE",      "Distribution · Régularité · Zones optimales · Évolution"),
+        (c4, "COACH REPORT", "6 recommandations personnalisées · Export PDF complet"),
     ]:
         with col:
             st.markdown(f"""
@@ -1289,7 +1359,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
         except ValueError as e:
             st.error(f"Erreur de lecture GPX : {e}")
             if st.button("↺ Recommencer"):
-                for k in ['gpx_bytes','gpx_filename']:
+                for k in ['gpx_bytes', 'gpx_filename', 'fcmax_override', 'custom_zones']:
                     st.session_state.pop(k, None)
                 st.rerun()
             return
@@ -1305,29 +1375,47 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     with st.sidebar:
         st.markdown('<div class="hud-label">// PARAMETRES //</div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
-        fcmax_default = int(info['hr_max']) if info.get('hr_max') else 190
+
+        # Récupère la FCmax saisie sur la landing si disponible
+        fcmax_default = st.session_state.get(
+            'fcmax_override',
+            int(info['hr_max']) if info.get('hr_max') else 190
+        )
         fcmax = st.number_input("FCmax (bpm)", min_value=150, max_value=220,
                                 value=fcmax_default, step=1)
         st.markdown("""
         <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:#2A4050;margin-top:4px;">
         Ajuste ta FCmax réelle pour des zones précises
         </div>""", unsafe_allow_html=True)
+
+        # Indicateur zones custom actives
+        custom_zones = st.session_state.get('custom_zones', None)
+        if custom_zones:
+            st.markdown("""
+            <div style="font-family:'DM Mono',monospace;font-size:0.6rem;
+            color:#41C8E8;margin-top:8px;letter-spacing:0.12em;">
+            ✓ ZONES CUSTOM ACTIVES
+            </div>""", unsafe_allow_html=True)
+            if st.button("✕ Réinitialiser les zones"):
+                st.session_state.pop('custom_zones', None)
+                st.rerun()
+
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("↺ NOUVELLE ANALYSE"):
-            for k in ['gpx_bytes','gpx_filename']:
+            for k in ['gpx_bytes', 'gpx_filename', 'fcmax_override', 'custom_zones']:
                 st.session_state.pop(k, None)
             st.rerun()
 
-    zones    = compute_hr_zones(df, fcmax) if info['has_hr'] else None
-    drift    = cardiac_drift(df)           if info['has_hr'] else {'ef1':None,'ef2':None,'drift_pct':None,'quartiles':{}}
-    hr_grade = hr_by_grade(df)             if info['has_hr'] else None
+    zones    = compute_hr_zones(df, fcmax, custom_zones) if info['has_hr'] else None
+    drift    = cardiac_drift(df) if info['has_hr'] else {'ef1': None, 'ef2': None, 'drift_pct': None, 'quartiles': {}}
+    hr_grade = hr_by_grade(df)   if info['has_hr'] else None
     recs     = generate_coach_recommendations(profile, fi, drift, cad_an, info, fcmax)
 
     # ── Header ──────────────────────────────────────────────────
     col_title, col_badge = st.columns([4, 1])
     with col_title:
         st.markdown(
-            f'<div class="hud-label">// ANALYSE COMPLETE — v3.0 //</div>'
+            f'<div class="hud-label">// ANALYSE COMPLETE — v4.0 //</div>'
             f'<div style="font-family:Barlow Condensed,sans-serif;font-size:1.8rem;'
             f'font-weight:700;letter-spacing:0.15em;color:#ffffff">'
             f'{info["name"].upper()}</div>',
@@ -1383,10 +1471,23 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     if info['has_hr']:
         st.markdown('<div class="section-title">FRÉQUENCE CARDIAQUE</div>', unsafe_allow_html=True)
 
+        # Badge zones custom visible
+        if custom_zones:
+            zone_source = "ZONES PERSONNALISÉES ACTIVES"
+            zone_color  = "#41C8E8"
+        else:
+            zone_source = "ZONES CALCULÉES PAR % FCMAX"
+            zone_color  = "#2A4050"
+        st.markdown(f"""
+        <div style="font-family:'DM Mono',monospace;font-size:0.58rem;
+        color:{zone_color};letter-spacing:0.18em;margin-bottom:8px;">
+        ◆ {zone_source}
+        </div>""", unsafe_allow_html=True)
+
         h1, h2 = st.columns(2)
         with h1:
             st.markdown('<div class="hud-label" style="margin-bottom:4px;">FC sur la course</div>', unsafe_allow_html=True)
-            st.plotly_chart(chart_hr(df, fcmax), use_container_width=True)
+            st.plotly_chart(chart_hr(df, fcmax, custom_zones), use_container_width=True)
         with h2:
             st.markdown('<div class="hud-label" style="margin-bottom:4px;">FC × Allure superposées</div>', unsafe_allow_html=True)
             st.plotly_chart(chart_hr_pace_overlay(df), use_container_width=True)
@@ -1394,8 +1495,8 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
         if zones:
             st.markdown('<div class="hud-label" style="margin-top:1rem;margin-bottom:12px;">Distribution des zones FC</div>', unsafe_allow_html=True)
             zone_cols = st.columns(5)
-            zone_labels = ['Z1','Z2','Z3','Z4','Z5']
-            zone_colors_hex = ['#1A3A4A','#1A5060','#1A8AAA','#C8A84B','#C84850']
+            zone_labels = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5']
+            zone_colors_hex = ['#1A3A4A', '#1A5060', '#1A8AAA', '#C8A84B', '#C84850']
             for i, z in enumerate(zone_labels):
                 with zone_cols[i]:
                     pct = zones['pct'][z]
@@ -1567,7 +1668,8 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                 pdf_bytes = generate_pdf(
                     info, fi, flat_v, profile, grade_df,
                     zones, drift, cad_an, splits, recs, fcmax,
-                    st.session_state.get("email_input", "")
+                    custom_zones=st.session_state.get('custom_zones'),
+                    email=st.session_state.get("email_input", ""),
                 )
             fname = f"VERTEX_{info['name'].replace(' ','_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
             st.download_button(
