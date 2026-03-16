@@ -1,7 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
 ║         VERTEX — GPX Performance Analyzer  |  app.py            ║
-║         FC · Cadence · GAP · Zones · Découplage · v4.0          ║
+║         FC · Cadence · GAP · Zones · Découplage · v3.1          ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -218,7 +218,7 @@ st.markdown(CSS, unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════
-# 1 — GPX PARSER (v3 : FC + cadence)
+# 1 — GPX PARSER (v3.1 : correction cadence ×2)
 # ══════════════════════════════════════════════════════════════════
 
 def haversine(lat1, lon1, lat2, lon2) -> float:
@@ -284,7 +284,11 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
                 try:
                     v = int(cad_el.text)
                     if v > 30:
-                        cad = v
+                        # FIX v3.1 : Garmin stocke la cadence unilatérale (une jambe)
+                        # dans les extensions GPX. On multiplie par 2 pour obtenir
+                        # les pas/min totaux (SPM), sauf si la valeur est déjà > 110
+                        # (certains appareils exportent directement en SPM total).
+                        cad = v * 2 if v < 110 else v
                 except Exception:
                     pass
 
@@ -334,11 +338,12 @@ def extract_race_info(df: pd.DataFrame, filename: str) -> dict:
     avg_velocity = df[df['velocity'] > 0.3]['velocity'].mean()
 
     has_hr  = df['hr'].notna().sum() > len(df) * 0.3
+    # FIX v3.1 : seuil filtre cadence relevé à 80 (post-multiplication ×2)
     has_cad = df['cadence'].notna().sum() > len(df) * 0.3
 
     hr_mean  = df.loc[df['hr'] > 50, 'hr'].mean() if has_hr else None
     hr_max   = df.loc[df['hr'] > 50, 'hr'].max()  if has_hr else None
-    cad_mean = df.loc[df['cadence'] > 40, 'cadence'].mean() if has_cad else None
+    cad_mean = df.loc[df['cadence'] > 80, 'cadence'].mean() if has_cad else None
 
     return {
         'name': filename.replace('.gpx','').replace('_',' ').title(),
@@ -428,44 +433,27 @@ ZONE_NAMES = {
     'Z5': 'VO2max / Anaérobie',
 }
 
-def compute_hr_zones(df: pd.DataFrame, fcmax: int,
-                     custom_zones: dict = None) -> dict:
-    """
-    custom_zones : {'Z1': (0, 120), 'Z2': (120, 140), ...} en bpm
-    Si None → calcul automatique par % FCmax standard
-    """
-    if custom_zones:
-        thresholds_bpm = custom_zones
-    else:
-        thresholds_bpm = {
-            'Z1': (0,                  int(0.60 * fcmax)),
-            'Z2': (int(0.60 * fcmax),  int(0.70 * fcmax)),
-            'Z3': (int(0.70 * fcmax),  int(0.80 * fcmax)),
-            'Z4': (int(0.80 * fcmax),  int(0.90 * fcmax)),
-            'Z5': (int(0.90 * fcmax),  int(1.01 * fcmax)),
-        }
-
-    zone_time = {z: 0.0 for z in thresholds_bpm}
+def compute_hr_zones(df: pd.DataFrame, fcmax: int) -> dict:
+    thresholds = {
+        'Z1': (0,    0.60),
+        'Z2': (0.60, 0.70),
+        'Z3': (0.70, 0.80),
+        'Z4': (0.80, 0.90),
+        'Z5': (0.90, 1.01),
+    }
+    zone_time = {z: 0.0 for z in thresholds}
     valid = df[df['hr'] > 50].copy()
     valid['dt'] = valid['time_s'].diff().fillna(0).clip(0, 30)
-
     for _, row in valid.iterrows():
-        hr = row['hr']
-        for z, (lo, hi) in thresholds_bpm.items():
-            if lo <= hr < hi:
+        pct = row['hr'] / fcmax
+        for z, (lo, hi) in thresholds.items():
+            if lo <= pct < hi:
                 zone_time[z] += row['dt']
                 break
-
     total = sum(zone_time.values())
-    zone_pct = {z: (t / total * 100 if total > 0 else 0)
-                for z, t in zone_time.items()}
-
-    return {
-        'time': zone_time,
-        'pct':  zone_pct,
-        'bpm':  thresholds_bpm,
-        'fcmax': fcmax,
-    }
+    zone_pct = {z: (t/total*100 if total > 0 else 0) for z, t in zone_time.items()}
+    zone_bpm = {z: (int(lo*fcmax), int(hi*fcmax)) for z, (lo, hi) in thresholds.items()}
+    return {'time': zone_time, 'pct': zone_pct, 'bpm': zone_bpm, 'fcmax': fcmax}
 
 
 # ── Découplage cardiaque ────────────────────────────────────────
@@ -522,7 +510,8 @@ def compute_km_splits(df: pd.DataFrame) -> list:
         gap_v = gap_correction(v, seg['grade'].mean()) if v else None
 
         hr_mean  = seg.loc[seg['hr'] > 50, 'hr'].mean() if seg['hr'].notna().any() else None
-        cad_mean = seg.loc[seg['cadence'] > 40, 'cadence'].mean() if seg['cadence'].notna().any() else None
+        # FIX v3.1 : seuil filtre cadence relevé à 80
+        cad_mean = seg.loc[seg['cadence'] > 80, 'cadence'].mean() if seg['cadence'].notna().any() else None
 
         splits.append({
             'km':      km + 1,
@@ -557,24 +546,27 @@ def hr_by_grade(df: pd.DataFrame) -> pd.DataFrame:
 # ── Analyse cadence ─────────────────────────────────────────────
 
 def cadence_analysis(df: pd.DataFrame) -> dict:
-    valid = df[df['cadence'] > 40]['cadence']
+    # FIX v3.1 : seuil filtre relevé à 80 (post-multiplication ×2)
+    valid = df[df['cadence'] > 80]['cadence']
     if len(valid) < 10:
         return {'mean': None, 'max': None, 'dist': {}, 'optimal_pct': None}
 
-    bins = {'<75': 0, '75-80': 0, '80-85': 0, '85-90': 0,
-            '90-95': 0, '95-100': 0, '>100': 0}
+    # FIX v3.1 : bins recalculés pour des valeurs post-×2 (150–210 ppm réaliste trail)
+    bins = {'<150': 0, '150-160': 0, '160-170': 0, '170-180': 0,
+            '180-190': 0, '190-200': 0, '>200': 0}
     for c in valid:
-        if c < 75:     bins['<75'] += 1
-        elif c < 80:   bins['75-80'] += 1
-        elif c < 85:   bins['80-85'] += 1
-        elif c < 90:   bins['85-90'] += 1
-        elif c < 95:   bins['90-95'] += 1
-        elif c <= 100: bins['95-100'] += 1
-        else:          bins['>100'] += 1
+        if c < 150:     bins['<150'] += 1
+        elif c < 160:   bins['150-160'] += 1
+        elif c < 170:   bins['160-170'] += 1
+        elif c < 180:   bins['170-180'] += 1
+        elif c < 190:   bins['180-190'] += 1
+        elif c <= 200:  bins['190-200'] += 1
+        else:           bins['>200'] += 1
 
     total = len(valid)
     pct = {k: v/total*100 for k, v in bins.items()}
-    optimal_pct = pct.get('85-90', 0) + pct.get('90-95', 0) + pct.get('95-100', 0)
+    # Zone optimale trail : 170-190 ppm (équivalent 85-95 ppm unilatéral Garmin)
+    optimal_pct = pct.get('170-180', 0) + pct.get('180-190', 0) + pct.get('190-200', 0)
 
     return {
         'mean': valid.mean(),
@@ -585,7 +577,7 @@ def cadence_analysis(df: pd.DataFrame) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════
-# 3 — RECOMMANDATIONS COACH (v3)
+# 3 — RECOMMANDATIONS COACH (v3.1)
 # ══════════════════════════════════════════════════════════════════
 
 def generate_coach_recommendations(
@@ -673,22 +665,23 @@ def generate_coach_recommendations(
             })
 
     if cad_mean:
-        if cad_mean < 84:
+        # FIX v3.1 : seuils cadence recalculés en SPM total (×2)
+        if cad_mean < 168:
             recs.append({
                 'level': 'warn',
-                'title': f'Cadence basse : {cad_mean:.0f} ppm',
-                'body': f"Cadence moyenne de {cad_mean:.0f} ppm, sous le seuil optimal (85-92 ppm). "
+                'title': f'Cadence basse : {cad_mean:.0f} spm',
+                'body': f"Cadence moyenne de {cad_mean:.0f} spm, sous le seuil optimal (170-190 spm). "
                         "Une cadence basse = pas plus longs = plus de stress articulaire + frein à l'allure. "
-                        "Exercice : 2×10min/semaine de 'cadence drills' à 90 ppm avec métronome. "
-                        "Objectif progressif : +2-3 ppm par mois."
+                        "Exercice : 2×10min/semaine de 'cadence drills' à 180 spm avec métronome. "
+                        "Objectif progressif : +4-6 spm par mois."
             })
         if optimal_pct < 60:
             recs.append({
                 'level': 'warn',
                 'title': f'Régularité cadence : {optimal_pct:.0f}% du temps en zone optimale',
-                'body': "Moins de 60% du temps dans la plage cadence optimale (85-100 ppm). "
+                'body': "Moins de 60% du temps dans la plage cadence optimale (170-200 spm). "
                         "La variabilité de cadence est un signe de fatigue neuromusculaire ou de technique à travailler. "
-                        "Priorité : montées en marchant actif + cadence rythmée en descente (180 pas/min)."
+                        "Priorité : montées en marchant actif + cadence rythmée en descente (180 spm)."
             })
 
     q_times = fi.get('quartiles', {})
@@ -724,7 +717,7 @@ def _strength_advice(profile, drift_pct, cad_mean, dp):
         return ("Ton efficacité cardiaque est excellente et stable sur l'effort. "
                 "C'est le signe d'une bonne base aérobie. "
                 "Tu peux désormais monter en intensité sans risque : 1 séance VMA/semaine bien dosée.")
-    if cad_mean and cad_mean >= 90:
+    if cad_mean and cad_mean >= 180:
         return ("Belle cadence de course — c'est un indicateur de technique et d'économie de course solide. "
                 "Maintiens ce travail technique et oriente-toi vers des chaussures plus légères "
                 "pour exploiter pleinement cette économie de foulée.")
@@ -782,21 +775,14 @@ def chart_pace(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def chart_hr(df: pd.DataFrame, fcmax: int, custom_zones: dict = None) -> go.Figure:
+def chart_hr(df: pd.DataFrame, fcmax: int) -> go.Figure:
     dist_km = df['distance'] / 1000
     fig = go.Figure()
-
-    if custom_zones:
-        zone_colors = ['#1A3A4A', '#1A5060', '#1A8AAA', '#C8A84B', '#C84850']
-        for (z, (lo, hi)), color in zip(custom_zones.items(), zone_colors):
-            fig.add_hrect(y0=lo, y1=hi, fillcolor=color, opacity=0.08, line_width=0)
-    else:
-        zone_bounds = [(0, 0.60, '#1A3A4A'), (0.60, 0.70, '#1A5060'),
-                       (0.70, 0.80, '#1A8AAA'), (0.80, 0.90, '#C8A84B'), (0.90, 1.0, '#C84850')]
-        for lo, hi, color in zone_bounds:
-            fig.add_hrect(y0=lo*fcmax, y1=hi*fcmax,
-                          fillcolor=color, opacity=0.08, line_width=0)
-
+    zone_bounds = [(0, 0.60, '#1A3A4A'), (0.60, 0.70, '#1A5060'),
+                   (0.70, 0.80, '#1A8AAA'), (0.80, 0.90, '#C8A84B'), (0.90, 1.0, '#C84850')]
+    for lo, hi, color in zone_bounds:
+        fig.add_hrect(y0=lo*fcmax, y1=hi*fcmax,
+                      fillcolor=color, opacity=0.08, line_width=0)
     fig.add_trace(go.Scatter(
         x=dist_km, y=df['hr'],
         mode='lines', line=dict(color='#C84850', width=1.5),
@@ -897,16 +883,18 @@ def chart_gap_profile(df: pd.DataFrame) -> go.Figure:
 def chart_cadence(df: pd.DataFrame) -> go.Figure:
     dist_km = df['distance'] / 1000
     fig = go.Figure()
-    fig.add_hrect(y0=85, y1=100, fillcolor='rgba(65,200,232,0.05)', line_width=0)
+    # FIX v3.1 : zones optimales recalculées en SPM total
+    fig.add_hrect(y0=170, y1=200, fillcolor='rgba(65,200,232,0.05)', line_width=0)
     fig.add_trace(go.Scatter(
         x=dist_km, y=df['cadence'],
         mode='lines', line=dict(color='#41C8E8', width=1.2), name='Cadence'
     ))
-    fig.add_hline(y=90, line_dash='dot', line_color='rgba(65,200,232,0.3)', line_width=1)
+    # Ligne de référence à 180 spm (standard running optimal)
+    fig.add_hline(y=180, line_dash='dot', line_color='rgba(65,200,232,0.3)', line_width=1)
     fig.update_layout(**_layout(
         height=180,
         yaxis=dict(gridcolor="#152030", zeroline=False),
-        yaxis_title="ppm",
+        yaxis_title="spm",
         xaxis_title="km",
     ))
     return fig
@@ -946,58 +934,23 @@ def chart_ef_quartiles(ef_q: dict) -> go.Figure:
 
 
 # ══════════════════════════════════════════════════════════════════
-# 5 — PDF GENERATOR (v4 — design cohérent toutes pages)
+# 5 — PDF GENERATOR (v3.1)
 # ══════════════════════════════════════════════════════════════════
 
 def clean(text: str) -> str:
     text = unicodedata.normalize("NFKD", str(text))
     return text.encode("latin-1", errors="ignore").decode("latin-1")
 
-
-class VertexPDF(FPDF):
-    """FPDF subclass : fond dark + bandeau header + footer sur chaque page."""
-
-    def header(self):
-        # Fond pleine page
-        self.set_fill_color(8, 14, 20)
-        self.rect(0, 0, 210, 297, 'F')
-        # Filet supérieur cyan
-        self.set_draw_color(65, 200, 232)
-        self.set_line_width(0.6)
-        self.line(0, 10, 210, 10)
-        # Label VERTEX en haut (sauf page 1 où le grand titre prend la place)
-        if self.page_no() > 1:
-            self.set_xy(15, 3)
-            self.set_font("Helvetica", "B", 7)
-            self.set_text_color(65, 200, 232)
-            self.cell(40, 5, clean("VERTEX"), border=0)
-            self.set_font("Helvetica", "", 6)
-            self.set_text_color(42, 64, 80)
-            self.cell(0, 5, clean("PERFORMANCE INTELLIGENCE  |  RACE ANALYSIS v4"), border=0, ln=True)
-        self.set_y(14)
-
-    def footer(self):
-        self.set_y(-12)
-        self.set_draw_color(21, 32, 48)
-        self.set_line_width(0.3)
-        self.line(15, self.get_y(), 195, self.get_y())
-        self.ln(2)
-        self.set_font("Courier", "", 6)
-        self.set_text_color(30, 50, 60)
-        self.cell(0, 4,
-            clean(f"VERTEX v4.0  —  GAP Minetti (2002)  —  p.{self.page_no()}"),
-            align="C")
-
-
 def generate_pdf(info, fi, flat_v, profile, grade_df,
                  zones, drift, cad_analysis, splits, recs,
-                 fcmax, custom_zones=None, email="") -> bytes:
-
-    pdf = VertexPDF()
-    pdf.set_auto_page_break(auto=True, margin=18)
+                 fcmax, email="") -> bytes:
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
-    # ── helpers ─────────────────────────────────────────────────
+    def bg():
+        pdf.set_fill_color(8, 14, 20)
+        pdf.rect(0, 0, 210, 297, 'F')
 
     def sep():
         pdf.set_draw_color(21, 32, 48)
@@ -1006,16 +959,13 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         pdf.ln(4)
 
     def section(title):
-        pdf.ln(2)
         sep()
         pdf.set_font("Courier", "", 7)
         pdf.set_text_color(42, 64, 80)
-        pdf.set_x(15)
         pdf.cell(0, 5, clean(f"-- {title} --"), ln=True)
         pdf.ln(2)
 
     def kpi(label, value, color=(65, 200, 232)):
-        pdf.set_x(15)
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(42, 64, 80)
         pdf.cell(75, 6, clean(label), border=0)
@@ -1023,226 +973,128 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         pdf.set_text_color(*color)
         pdf.cell(0, 6, clean(value), ln=True)
 
-    # ── PAGE 1 : HEADER ────────────────────────────────────────
-    pdf.ln(4)
-    pdf.set_font("Helvetica", "B", 36)
+    bg()
+
+    pdf.set_font("Helvetica", "B", 32)
     pdf.set_text_color(65, 200, 232)
     pdf.cell(0, 14, clean("VERTEX"), ln=True, align="C")
-
     pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(42, 64, 80)
-    pdf.cell(0, 5, clean("PERFORMANCE INTELLIGENCE  |  RACE ANALYSIS v4"), ln=True, align="C")
-
+    pdf.cell(0, 5, clean("PERFORMANCE INTELLIGENCE  |  RACE ANALYSIS v3.1"), ln=True, align="C")
     pdf.set_text_color(100, 130, 150)
     pdf.cell(0, 5, clean(f"{info['name']}  ·  {datetime.now().strftime('%d/%m/%Y')}"), ln=True, align="C")
-    pdf.ln(2)
+    pdf.ln(4)
 
-    # Badge profil
-    badge_colors = {
-        "PROFIL ENDURANCE": (65, 200, 232),
-        "PROFIL EXPLOSIF":  (200, 168, 75),
-        "PROFIL FRAGILE":   (200, 72, 80),
-    }
-    badge_rgb = badge_colors.get(profile, (100, 130, 150))
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.set_text_color(*badge_rgb)
-    pdf.cell(0, 8, clean(f"[ {profile} ]"), ln=True, align="C")
-    pdf.ln(2)
-
-    # ── MÉTRIQUES ──────────────────────────────────────────────
     section("METRIQUES DE COURSE")
+    dist_km = info['distance_km']
     total_s = info['total_time_s']
     h, m, s = int(total_s//3600), int((total_s%3600)//60), int(total_s%60)
-    kpi("Distance :",             f"{info['distance_km']:.1f} km")
-    kpi("Temps total :",          f"{h}h{m:02d}'{s:02d}\"")
-    kpi("D+ :",                   f"{int(info['elevation_gain'])} m")
-    kpi("D- :",                   f"{int(info['elevation_loss'])} m")
-    kpi("Allure moyenne :",       f"{v_to_pace(info['avg_velocity_ms'])} /km")
+    kpi("Distance :", f"{dist_km:.1f} km")
+    kpi("Temps total :", f"{h}h{m:02d}'{s:02d}\"")
+    kpi("D+ :", f"{int(info['elevation_gain'])} m")
+    kpi("Allure moyenne :", f"{v_to_pace(info['avg_velocity_ms'])} /km")
     kpi("Allure de base (plat) :", f"{v_to_pace(flat_v)} /km")
-    kpi("Altitude max :",         f"{int(info['max_elevation'])} m")
+    kpi("Altitude max :", f"{int(info['max_elevation'])} m")
     if info.get('hr_mean'):
-        kpi("FC moyenne :",       f"{int(info['hr_mean'])} bpm  ({info['hr_mean']/fcmax*100:.0f}% FCmax)")
-        kpi("FC max observee :",  f"{int(info['hr_max'])} bpm")
+        kpi("FC moyenne :", f"{int(info['hr_mean'])} bpm")
+        kpi("FC max observee :", f"{int(info['hr_max'])} bpm")
     if info.get('cad_mean'):
-        kpi("Cadence moyenne :",  f"{int(info['cad_mean'])} ppm")
-    kpi("FCmax reference :",      f"{fcmax} bpm" + (" (custom zones)" if custom_zones else " (calcul auto %)"))
+        kpi("Cadence moyenne :", f"{int(info['cad_mean'])} spm")
+    kpi("Classification :", profile)
 
-    # ── ZONES FC ───────────────────────────────────────────────
     if zones:
         section("ZONES DE FREQUENCE CARDIAQUE")
-        zone_rgb = {
-            'Z1': (26,  58,  74),
-            'Z2': (26,  80,  96),
-            'Z3': (26, 138, 170),
-            'Z4': (200, 168,  75),
-            'Z5': (200,  72,  80),
-        }
-        for z in ['Z1', 'Z2', 'Z3', 'Z4', 'Z5']:
-            bpm = zones['bpm'].get(z, (0, 0))
+        for z in ['Z1','Z2','Z3','Z4','Z5']:
+            bpm = zones['bpm'].get(z, (0,0))
             pct = zones['pct'].get(z, 0)
             t   = zones['time'].get(z, 0)
-            mm  = int(t // 60)
-            rgb = zone_rgb[z]
-            pdf.set_x(15)
-            pdf.set_font("Helvetica", "B", 8)
-            pdf.set_text_color(*rgb)
-            pdf.cell(12, 5, clean(z), border=0)
+            mm  = int(t//60)
             pdf.set_font("Helvetica", "", 8)
+            pdf.set_text_color(42, 64, 80)
+            pdf.cell(18, 5, clean(f"{z} :"), border=0)
             pdf.set_text_color(100, 130, 150)
             pdf.cell(45, 5, clean(f"{bpm[0]}-{bpm[1]} bpm"), border=0)
             pdf.set_text_color(65, 200, 232)
-            pdf.cell(30, 5, clean(f"{mm} min"), border=0)
-            pdf.set_text_color(42, 64, 80)
-            pdf.cell(0, 5, clean(f"({pct:.0f}%)"), ln=True)
+            pdf.cell(0, 5, clean(f"{mm} min  ({pct:.0f}%)"), ln=True)
 
-    # ── GAP ────────────────────────────────────────────────────
     section("ANALYSE DE FATIGUE GAP")
     dr = fi['decay_ratio']
     dp = fi['decay_pct']
     kpi("Ratio Q4/Q1 (GAP) :", f"{dr:.3f}" if not math.isnan(dr) else "N/A")
-    kpi("Perte de vitesse :",  f"{dp:.1f}%" if not math.isnan(dp) else "N/A",
-        color=(200, 72, 80) if not math.isnan(dp) and dp > 10 else
-              (200, 168, 75) if not math.isnan(dp) and dp > 5 else (65, 200, 232))
+    kpi("Perte de vitesse :", f"{dp:.1f}%" if not math.isnan(dp) else "N/A")
     for q, v in fi['quartiles'].items():
         val = f"{v:.3f} m/s  ({v_to_pace(v)} /km)" if not math.isnan(v) else "N/A"
-        pdf.set_x(15)
-        pdf.set_font("Helvetica", "", 8)
-        pdf.set_text_color(42, 64, 80)
+        pdf.set_font("Helvetica", "", 8); pdf.set_text_color(42, 64, 80)
         pdf.cell(30, 5, clean(q + " :"), border=0)
         pdf.set_text_color(100, 130, 150)
         pdf.cell(0, 5, clean(val), ln=True)
 
-    # ── DÉCOUPLAGE ─────────────────────────────────────────────
     if drift.get('drift_pct') is not None:
         section("DECOUPLAGE CARDIAQUE")
         kpi("EF 1ere moitie (plat) :", f"{drift['ef1']:.3f}" if drift['ef1'] else "N/A")
         kpi("EF 2eme moitie (plat) :", f"{drift['ef2']:.3f}" if drift['ef2'] else "N/A")
         drift_val = drift['drift_pct']
-        d_color = (200, 72, 80) if drift_val < -5 else (200, 168, 75) if drift_val < -2 else (65, 200, 232)
-        kpi("Derive EF :", f"{drift_val:.1f}%", color=d_color)
+        color = (200, 72, 80) if drift_val < -5 else (200, 168, 75) if drift_val < -2 else (65, 200, 232)
+        kpi("Derive EF :", f"{drift_val:.1f}%", color=color)
 
-    # ── PROFIL PENTE ───────────────────────────────────────────
     section("PROFIL PENTE")
     for _, row in grade_df.iterrows():
-        pdf.set_x(15)
-        pdf.set_font("Helvetica", "", 8)
-        pdf.set_text_color(42, 64, 80)
+        pdf.set_font("Helvetica", "", 8); pdf.set_text_color(42, 64, 80)
         pdf.cell(40, 5, clean(str(row['Tranche pente']) + " :"), border=0)
         pdf.set_text_color(100, 130, 150)
         pdf.cell(0, 5, clean(f"{row['Allure (min/km)']} /km"), ln=True)
 
-    # ── CADENCE ────────────────────────────────────────────────
     if cad_analysis.get('mean'):
         section("ANALYSE CADENCE")
-        kpi("Cadence moyenne :",           f"{cad_analysis['mean']:.0f} ppm")
-        kpi("Zone optimale (85-100ppm) :", f"{cad_analysis['optimal_pct']:.0f}% du temps")
+        kpi("Cadence moyenne :", f"{cad_analysis['mean']:.0f} spm")
+        kpi("Zone optimale (170-200spm) :", f"{cad_analysis['optimal_pct']:.0f}% du temps")
         for k, v in cad_analysis['dist'].items():
             if v > 1:
-                is_opt = k in ['85-90', '90-95', '95-100']
-                pdf.set_x(15)
-                pdf.set_font("Helvetica", "", 8)
-                pdf.set_text_color(42, 64, 80)
-                pdf.cell(40, 5, clean(k + " ppm :"), border=0)
-                if is_opt:
-                    pdf.set_text_color(65, 200, 232)
-                else:
-                    pdf.set_text_color(100, 130, 150)
+                pdf.set_font("Helvetica", "", 8); pdf.set_text_color(42, 64, 80)
+                pdf.cell(40, 5, clean(k + " spm :"), border=0)
+                pdf.set_text_color(100, 130, 150)
                 pdf.cell(0, 5, clean(f"{v:.0f}%"), ln=True)
 
-    # ── SPLITS ─────────────────────────────────────────────────
     if splits:
-        section("SPLITS PAR KM")
-        pdf.set_x(15)
+        section("SPLITS PAR KM (resume)")
         pdf.set_font("Helvetica", "B", 7)
         pdf.set_text_color(42, 64, 80)
-        for col, w in zip(["Km", "Allure", "GAP", "D+", "D-", "FC", "Cad"],
-                          [12,   22,       22,    15,   15,   18,   18]):
+        cols = ["Km", "Allure", "GAP", "D+", "FC", "Cad"]
+        widths = [12, 22, 22, 15, 18, 18]
+        for col, w in zip(cols, widths):
             pdf.cell(w, 5, clean(col), border=0)
         pdf.ln()
-
-        pdf.set_draw_color(21, 32, 48)
-        pdf.set_line_width(0.2)
-        pdf.line(15, pdf.get_y(), 137, pdf.get_y())
-        pdf.ln(2)
-
         pdf.set_font("Helvetica", "", 7)
-        valid_paces = [sp['pace_s'] for sp in splits if sp.get('pace_s')]
-        med_pace = sum(valid_paces) / len(valid_paces) if valid_paces else None
-
-        for sp in splits:
-            pace_s = sp.get('pace_s')
-            if pace_s and med_pace:
-                if pace_s < med_pace * 0.92:
-                    pace_rgb = (65, 200, 232)
-                elif pace_s > med_pace * 1.08:
-                    pace_rgb = (200, 72, 80)
-                else:
-                    pace_rgb = (100, 130, 150)
-            else:
-                pace_rgb = (100, 130, 150)
-
-            pdf.set_x(15)
-            pdf.set_text_color(42, 64, 80)
-            pdf.cell(12, 4, clean(str(sp['km'])), border=0)
-            pdf.set_text_color(*pace_rgb)
-            pdf.cell(22, 4, clean(sp['pace']), border=0)
+        for sp in splits[::2]:
             pdf.set_text_color(100, 130, 150)
+            pdf.cell(12, 4, clean(str(sp['km'])), border=0)
+            pdf.cell(22, 4, clean(sp['pace']), border=0)
             pdf.cell(22, 4, clean(sp['gap']), border=0)
-            pdf.set_text_color(65, 200, 232)
             pdf.cell(15, 4, clean(f"+{sp['d_pos']}m"), border=0)
-            pdf.set_text_color(200, 72, 80)
-            pdf.cell(15, 4, clean(f"-{sp['d_neg']}m"), border=0)
-            hr_val = str(sp['hr']) if sp['hr'] else "--"
-            hr_rgb = (200, 72, 80) if sp['hr'] and sp['hr'] > fcmax * 0.92 else (100, 130, 150)
-            pdf.set_text_color(*hr_rgb)
-            pdf.cell(18, 4, clean(hr_val), border=0)
-            cad_val = str(sp['cadence']) if sp['cadence'] else "--"
-            cad_rgb = (65, 200, 232) if sp['cadence'] and 85 <= sp['cadence'] <= 100 else (100, 130, 150)
-            pdf.set_text_color(*cad_rgb)
-            pdf.cell(18, 4, clean(cad_val), border=0)
+            pdf.cell(18, 4, clean(str(sp['hr']) if sp['hr'] else "--"), border=0)
+            pdf.cell(18, 4, clean(str(sp['cadence']) if sp['cadence'] else "--"), border=0)
             pdf.ln()
 
-    # ── RECOMMANDATIONS COACH ──────────────────────────────────
     section("RECOMMANDATIONS COACH")
-    level_colors = {
-        'info': (65, 200, 232),
-        'warn': (200, 168, 75),
-        'crit': (200, 72, 80),
-    }
-    level_labels = {
-        'info': 'INFO',
-        'warn': 'ATTENTION',
-        'crit': 'PRIORITAIRE',
-    }
+    level_colors = {'info': (65,200,232), 'warn': (200,168,75), 'crit': (200,72,80)}
     for i, rec in enumerate(recs, 1):
-        rgb = level_colors.get(rec['level'], (100, 130, 150))
-        lbl = level_labels.get(rec['level'], 'INFO')
-        pdf.set_x(15)
-        pdf.set_font("Courier", "", 6)
-        pdf.set_text_color(*rgb)
-        pdf.cell(0, 4, clean(f"[{lbl}]"), ln=True)
-        pdf.set_x(15)
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.set_text_color(*rgb)
+        color = level_colors.get(rec['level'], (100,130,150))
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_text_color(*color)
         pdf.cell(8, 5, clean(f"{i}."), border=0)
         pdf.cell(0, 5, clean(rec['title']), ln=True)
-        pdf.set_x(15)
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(100, 130, 150)
-        pdf.multi_cell(180, 5, clean(rec['body']))
-        pdf.ln(2)
+        pdf.multi_cell(0, 5, clean(rec['body']))
+        pdf.ln(1)
 
-    # ── PIED DERNIER ──────────────────────────────────────────
-    pdf.ln(4)
     sep()
     pdf.set_font("Courier", "", 6)
     pdf.set_text_color(30, 50, 60)
     if email:
-        pdf.set_x(15)
         pdf.cell(0, 4, clean(f"Plans envoyes a : {email}"), ln=True, align="C")
-    pdf.set_x(15)
     pdf.cell(0, 4,
-        clean(f"FCmax : {fcmax} bpm  —  {datetime.now().strftime('%d/%m/%Y')}  —  VERTEX v4.0"),
+        clean(f"VERTEX v3.1 — GAP Minetti (2002) — FCmax: {fcmax} bpm — {datetime.now().strftime('%d/%m/%Y')}"),
         ln=True, align="C")
 
     return bytes(pdf.output())
@@ -1256,7 +1108,7 @@ def render_landing():
     st.markdown("<br>", unsafe_allow_html=True)
     col_l, col_c, col_r = st.columns([1, 2, 1])
     with col_c:
-        st.markdown('<div class="hud-label">// SYSTEM ONLINE — v4.0 //</div>', unsafe_allow_html=True)
+        st.markdown('<div class="hud-label">// SYSTEM ONLINE — v3.1 //</div>', unsafe_allow_html=True)
         st.markdown('<div class="vertex-title">VERTEX</div>', unsafe_allow_html=True)
         st.markdown('<div class="vertex-sub">PERFORMANCE INTELLIGENCE</div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1275,66 +1127,18 @@ def render_landing():
             help="Garmin Connect → Exporter l'original (avec FC et cadence)",
             label_visibility="visible",
         )
-
         if uploaded:
             st.session_state['gpx_bytes']    = uploaded.read()
             st.session_state['gpx_filename'] = uploaded.name
-
-            st.markdown("<br>", unsafe_allow_html=True)
-            with st.expander("⚙  PARAMÈTRES PHYSIOLOGIQUES  —  optionnel", expanded=True):
-                st.markdown("""
-                <div style="font-family:'DM Mono',monospace;font-size:0.62rem;
-                color:#2A4050;letter-spacing:0.15em;margin-bottom:12px;">
-                Sans saisie → calcul automatique par % FCmax standard
-                </div>""", unsafe_allow_html=True)
-
-                fcmax_input = st.number_input(
-                    "FCmax (bpm)", min_value=150, max_value=220,
-                    value=190, step=1, key="landing_fcmax"
-                )
-                st.session_state['fcmax_override'] = int(fcmax_input)
-
-                use_custom = st.toggle(
-                    "Je connais mes zones exactes (bornes en bpm)",
-                    value=False, key="use_custom_zones"
-                )
-
-                if use_custom:
-                    st.markdown("""
-                    <div style="font-family:'DM Mono',monospace;font-size:0.6rem;
-                    color:#2A4050;letter-spacing:0.12em;margin:8px 0 4px;">
-                    SAISIR LA BORNE BASSE DE CHAQUE ZONE (bpm)
-                    </div>""", unsafe_allow_html=True)
-
-                    zc1, zc2, zc3, zc4, zc5 = st.columns(5)
-                    z1_lo = zc1.number_input("Z1 ↓", 50,  180, 100, key="z1_lo")
-                    z2_lo = zc2.number_input("Z2 ↓", 80,  190, 120, key="z2_lo")
-                    z3_lo = zc3.number_input("Z3 ↓", 100, 200, 140, key="z3_lo")
-                    z4_lo = zc4.number_input("Z4 ↓", 120, 210, 155, key="z4_lo")
-                    z5_lo = zc5.number_input("Z5 ↓", 140, 220, 170, key="z5_lo")
-
-                    st.session_state['custom_zones'] = {
-                        'Z1': (0,     z1_lo),
-                        'Z2': (z1_lo, z2_lo),
-                        'Z3': (z2_lo, z3_lo),
-                        'Z4': (z3_lo, z4_lo),
-                        'Z5': (z4_lo, int(fcmax_input) + 10),
-                    }
-                else:
-                    st.session_state.pop('custom_zones', None)
-
-                col_launch, _ = st.columns([1, 2])
-                with col_launch:
-                    if st.button("▲  LANCER L'ANALYSE"):
-                        st.rerun()
+            st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     for col, label, desc in [
-        (c1, "GAP ENGINE",   "Grade-Adjusted Pace · Minetti 2002 · Profil fatigue 4 quartiles"),
-        (c2, "ZONES FC",     "Distribution Z1→Z5 · Zones custom · Découplage cardiaque · EF"),
-        (c3, "CADENCE",      "Distribution · Régularité · Zones optimales · Évolution"),
-        (c4, "COACH REPORT", "6 recommandations personnalisées · Export PDF complet"),
+        (c1, "GAP ENGINE",     "Grade-Adjusted Pace · Minetti 2002 · Profil fatigue 4 quartiles"),
+        (c2, "ZONES FC",       "Distribution Z1→Z5 · Découplage cardiaque · EF par segment"),
+        (c3, "CADENCE",        "Distribution · Régularité · Zones optimales · Évolution"),
+        (c4, "COACH REPORT",   "6 recommandations personnalisées · Export PDF complet"),
     ]:
         with col:
             st.markdown(f"""
@@ -1359,7 +1163,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
         except ValueError as e:
             st.error(f"Erreur de lecture GPX : {e}")
             if st.button("↺ Recommencer"):
-                for k in ['gpx_bytes', 'gpx_filename', 'fcmax_override', 'custom_zones']:
+                for k in ['gpx_bytes','gpx_filename']:
                     st.session_state.pop(k, None)
                 st.rerun()
             return
@@ -1375,47 +1179,29 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     with st.sidebar:
         st.markdown('<div class="hud-label">// PARAMETRES //</div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
-
-        # Récupère la FCmax saisie sur la landing si disponible
-        fcmax_default = st.session_state.get(
-            'fcmax_override',
-            int(info['hr_max']) if info.get('hr_max') else 190
-        )
+        fcmax_default = int(info['hr_max']) if info.get('hr_max') else 190
         fcmax = st.number_input("FCmax (bpm)", min_value=150, max_value=220,
                                 value=fcmax_default, step=1)
         st.markdown("""
         <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:#2A4050;margin-top:4px;">
         Ajuste ta FCmax réelle pour des zones précises
         </div>""", unsafe_allow_html=True)
-
-        # Indicateur zones custom actives
-        custom_zones = st.session_state.get('custom_zones', None)
-        if custom_zones:
-            st.markdown("""
-            <div style="font-family:'DM Mono',monospace;font-size:0.6rem;
-            color:#41C8E8;margin-top:8px;letter-spacing:0.12em;">
-            ✓ ZONES CUSTOM ACTIVES
-            </div>""", unsafe_allow_html=True)
-            if st.button("✕ Réinitialiser les zones"):
-                st.session_state.pop('custom_zones', None)
-                st.rerun()
-
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("↺ NOUVELLE ANALYSE"):
-            for k in ['gpx_bytes', 'gpx_filename', 'fcmax_override', 'custom_zones']:
+            for k in ['gpx_bytes','gpx_filename']:
                 st.session_state.pop(k, None)
             st.rerun()
 
-    zones    = compute_hr_zones(df, fcmax, custom_zones) if info['has_hr'] else None
-    drift    = cardiac_drift(df) if info['has_hr'] else {'ef1': None, 'ef2': None, 'drift_pct': None, 'quartiles': {}}
-    hr_grade = hr_by_grade(df)   if info['has_hr'] else None
+    zones    = compute_hr_zones(df, fcmax) if info['has_hr'] else None
+    drift    = cardiac_drift(df)           if info['has_hr'] else {'ef1':None,'ef2':None,'drift_pct':None,'quartiles':{}}
+    hr_grade = hr_by_grade(df)             if info['has_hr'] else None
     recs     = generate_coach_recommendations(profile, fi, drift, cad_an, info, fcmax)
 
     # ── Header ──────────────────────────────────────────────────
     col_title, col_badge = st.columns([4, 1])
     with col_title:
         st.markdown(
-            f'<div class="hud-label">// ANALYSE COMPLETE — v4.0 //</div>'
+            f'<div class="hud-label">// ANALYSE COMPLETE — v3.1 //</div>'
             f'<div style="font-family:Barlow Condensed,sans-serif;font-size:1.8rem;'
             f'font-weight:700;letter-spacing:0.15em;color:#ffffff">'
             f'{info["name"].upper()}</div>',
@@ -1447,7 +1233,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     if info['has_cad']:
         st.markdown("<br>", unsafe_allow_html=True)
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("CADENCE MOY.", f"{int(info['cad_mean'])} ppm")
+        c1.metric("CADENCE MOY.", f"{int(info['cad_mean'])} spm")
         dr = fi['decay_ratio']
         dp = fi['decay_pct']
         c2.metric("RATIO Q4/Q1", f"{dr:.3f}" if not math.isnan(dr) else "N/A")
@@ -1471,23 +1257,10 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     if info['has_hr']:
         st.markdown('<div class="section-title">FRÉQUENCE CARDIAQUE</div>', unsafe_allow_html=True)
 
-        # Badge zones custom visible
-        if custom_zones:
-            zone_source = "ZONES PERSONNALISÉES ACTIVES"
-            zone_color  = "#41C8E8"
-        else:
-            zone_source = "ZONES CALCULÉES PAR % FCMAX"
-            zone_color  = "#2A4050"
-        st.markdown(f"""
-        <div style="font-family:'DM Mono',monospace;font-size:0.58rem;
-        color:{zone_color};letter-spacing:0.18em;margin-bottom:8px;">
-        ◆ {zone_source}
-        </div>""", unsafe_allow_html=True)
-
         h1, h2 = st.columns(2)
         with h1:
             st.markdown('<div class="hud-label" style="margin-bottom:4px;">FC sur la course</div>', unsafe_allow_html=True)
-            st.plotly_chart(chart_hr(df, fcmax, custom_zones), use_container_width=True)
+            st.plotly_chart(chart_hr(df, fcmax), use_container_width=True)
         with h2:
             st.markdown('<div class="hud-label" style="margin-bottom:4px;">FC × Allure superposées</div>', unsafe_allow_html=True)
             st.plotly_chart(chart_hr_pace_overlay(df), use_container_width=True)
@@ -1495,8 +1268,8 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
         if zones:
             st.markdown('<div class="hud-label" style="margin-top:1rem;margin-bottom:12px;">Distribution des zones FC</div>', unsafe_allow_html=True)
             zone_cols = st.columns(5)
-            zone_labels = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5']
-            zone_colors_hex = ['#1A3A4A', '#1A5060', '#1A8AAA', '#C8A84B', '#C84850']
+            zone_labels = ['Z1','Z2','Z3','Z4','Z5']
+            zone_colors_hex = ['#1A3A4A','#1A5060','#1A8AAA','#C8A84B','#C84850']
             for i, z in enumerate(zone_labels):
                 with zone_cols[i]:
                     pct = zones['pct'][z]
@@ -1541,14 +1314,14 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
         st.markdown('<div class="section-title">CADENCE</div>', unsafe_allow_html=True)
         cd1, cd2 = st.columns([2, 1])
         with cd1:
-            st.markdown('<div class="hud-label" style="margin-bottom:4px;">Évolution cadence (ppm)</div>', unsafe_allow_html=True)
+            st.markdown('<div class="hud-label" style="margin-bottom:4px;">Évolution cadence (spm)</div>', unsafe_allow_html=True)
             st.plotly_chart(chart_cadence(df), use_container_width=True)
         with cd2:
             st.markdown('<div class="hud-label" style="margin-bottom:12px;">Distribution</div>', unsafe_allow_html=True)
             optimal_color = '#41C8E8' if cad_an['optimal_pct'] and cad_an['optimal_pct'] > 65 else '#C8A84B'
             st.markdown(f"""
             <div style="background:#0D1520;border:1px solid #152030;padding:16px;">
-                <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:#2A4050;letter-spacing:0.2em">ZONE OPTIMALE (85-100ppm)</div>
+                <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:#2A4050;letter-spacing:0.2em">ZONE OPTIMALE (170-200spm)</div>
                 <div style="font-family:'Barlow Condensed',sans-serif;font-size:2.5rem;font-weight:700;color:{optimal_color}">
                     {cad_an['optimal_pct']:.0f}%
                 </div>
@@ -1558,12 +1331,12 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
             for k, v in cad_an['dist'].items():
                 if v > 0.5:
                     bar_w = int(v * 1.4)
-                    is_opt = k in ['85-90', '90-95', '95-100']
+                    is_opt = k in ['170-180', '180-190', '190-200']
                     color = '#41C8E8' if is_opt else '#1A3A4A'
                     st.markdown(f"""
                     <div style="margin-bottom:5px;">
                         <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:0.6rem;color:#3A5060;margin-bottom:2px;">
-                            <span>{k} ppm</span><span>{v:.0f}%</span>
+                            <span>{k} spm</span><span>{v:.0f}%</span>
                         </div>
                         <div style="background:{color};height:4px;width:{min(bar_w,100)}%;border-radius:1px;"></div>
                     </div>""", unsafe_allow_html=True)
@@ -1623,7 +1396,8 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                 hr_color = '#C84850' if sp['hr'] and sp['hr'] > fcmax * 0.92 else '#C8D4DC'
                 row += f'<td style="color:{hr_color}">{sp["hr"] or "--"}</td>'
             if has_cad_sp:
-                cad_color = '#41C8E8' if sp['cadence'] and 85 <= sp['cadence'] <= 100 else '#C8D4DC'
+                # FIX v3.1 : zone optimale recalculée en SPM total
+                cad_color = '#41C8E8' if sp['cadence'] and 170 <= sp['cadence'] <= 200 else '#C8D4DC'
                 row += f'<td style="color:{cad_color}">{sp["cadence"] or "--"}</td>'
             rows_html += f'<tr>{row}</tr>'
 
@@ -1668,8 +1442,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                 pdf_bytes = generate_pdf(
                     info, fi, flat_v, profile, grade_df,
                     zones, drift, cad_an, splits, recs, fcmax,
-                    custom_zones=st.session_state.get('custom_zones'),
-                    email=st.session_state.get("email_input", ""),
+                    st.session_state.get("email_input", "")
                 )
             fname = f"VERTEX_{info['name'].replace(' ','_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
             st.download_button(
