@@ -433,7 +433,24 @@ ZONE_NAMES = {
     'Z5': 'VO2max / Anaérobie',
 }
 
-def compute_hr_zones(df: pd.DataFrame, fcmax: int) -> dict:
+def compute_hr_zones(df: pd.DataFrame, fcmax: int, custom_zones: dict = None) -> dict:
+    # Mode manuel : zones en bpm absolus fournis par l'utilisateur
+    if custom_zones:
+        zone_bpm = {z: (int(v[0]), int(v[1])) for z, v in custom_zones.items()}
+        zone_time = {z: 0.0 for z in zone_bpm}
+        valid = df[df['hr'] > 50].copy()
+        valid['dt'] = valid['time_s'].diff().fillna(0).clip(0, 30)
+        for _, row in valid.iterrows():
+            hr = row['hr']
+            for z, (lo, hi) in zone_bpm.items():
+                if lo <= hr < hi:
+                    zone_time[z] += row['dt']
+                    break
+        total = sum(zone_time.values())
+        zone_pct = {z: (t/total*100 if total > 0 else 0) for z, t in zone_time.items()}
+        return {'time': zone_time, 'pct': zone_pct, 'bpm': zone_bpm, 'fcmax': fcmax, 'mode': 'manual'}
+
+    # Mode auto : % FCmax (défaut)
     thresholds = {
         'Z1': (0,    0.60),
         'Z2': (0.60, 0.70),
@@ -453,7 +470,7 @@ def compute_hr_zones(df: pd.DataFrame, fcmax: int) -> dict:
     total = sum(zone_time.values())
     zone_pct = {z: (t/total*100 if total > 0 else 0) for z, t in zone_time.items()}
     zone_bpm = {z: (int(lo*fcmax), int(hi*fcmax)) for z, (lo, hi) in thresholds.items()}
-    return {'time': zone_time, 'pct': zone_pct, 'bpm': zone_bpm, 'fcmax': fcmax}
+    return {'time': zone_time, 'pct': zone_pct, 'bpm': zone_bpm, 'fcmax': fcmax, 'mode': 'auto'}
 
 
 # ── Découplage cardiaque ────────────────────────────────────────
@@ -1121,6 +1138,64 @@ def render_landing():
         """, unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
 
+        # ── PROFIL ATHLÈTE ──────────────────────────────────────
+        st.markdown("""
+        <div style="font-family:'DM Mono',monospace;font-size:0.62rem;color:#2A4050;
+        letter-spacing:0.22em;text-transform:uppercase;border-bottom:1px solid #152030;
+        padding-bottom:6px;margin-bottom:1rem;">// PROFIL ATHLÈTE //</div>
+        """, unsafe_allow_html=True)
+
+        col_fc, col_mode = st.columns([1, 1])
+        with col_fc:
+            fcmax_input = st.number_input(
+                "FCmax (bpm)",
+                min_value=150, max_value=220,
+                value=st.session_state.get('fcmax', 190),
+                step=1,
+                help="Ta fréquence cardiaque maximale réelle",
+            )
+            st.session_state['fcmax'] = fcmax_input
+
+        with col_mode:
+            zone_mode = st.selectbox(
+                "Mode zones FC",
+                options=["Auto (% FCmax)", "Manuel (je connais mes zones)"],
+                index=0 if st.session_state.get('zone_mode', 'auto') == 'auto' else 1,
+            )
+            st.session_state['zone_mode'] = 'auto' if zone_mode.startswith('Auto') else 'manual'
+
+        if st.session_state['zone_mode'] == 'manual':
+            st.markdown("""
+            <div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:#2A4050;
+            letter-spacing:0.15em;margin:8px 0 6px;">SEUILS DE ZONES (bpm)</div>
+            """, unsafe_allow_html=True)
+            zc1, zc2, zc3, zc4, zc5 = st.columns(5)
+            default_zones = st.session_state.get('custom_zones', {
+                'Z1': (0,   int(fcmax_input * 0.60)),
+                'Z2': (int(fcmax_input * 0.60), int(fcmax_input * 0.70)),
+                'Z3': (int(fcmax_input * 0.70), int(fcmax_input * 0.80)),
+                'Z4': (int(fcmax_input * 0.80), int(fcmax_input * 0.90)),
+                'Z5': (int(fcmax_input * 0.90), fcmax_input),
+            })
+            z1_hi = zc1.number_input("Z1 max", min_value=80,  max_value=220, value=default_zones['Z1'][1], step=1)
+            z2_hi = zc2.number_input("Z2 max", min_value=80,  max_value=220, value=default_zones['Z2'][1], step=1)
+            z3_hi = zc3.number_input("Z3 max", min_value=80,  max_value=220, value=default_zones['Z3'][1], step=1)
+            z4_hi = zc4.number_input("Z4 max", min_value=80,  max_value=220, value=default_zones['Z4'][1], step=1)
+            z5_hi = zc5.number_input("Z5 max", min_value=80,  max_value=220, value=default_zones['Z5'][1], step=1)
+            st.session_state['custom_zones'] = {
+                'Z1': (0,    z1_hi),
+                'Z2': (z1_hi, z2_hi),
+                'Z3': (z2_hi, z3_hi),
+                'Z4': (z3_hi, z4_hi),
+                'Z5': (z4_hi, z5_hi),
+            }
+            st.markdown("""
+            <div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:#2A4050;margin-top:4px;">
+            Saisis le bpm maximum de chaque zone
+            </div>""", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
         uploaded = st.file_uploader(
             "IMPORTER UN FICHIER GPX",
             type=["gpx"],
@@ -1176,23 +1251,28 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     splits   = compute_km_splits(df)
     cad_an   = cadence_analysis(df)
 
+    # Récupération FCmax et zones depuis session_state (saisis sur la landing)
+    fcmax = st.session_state.get('fcmax', int(info['hr_max']) if info.get('hr_max') else 190)
+    zone_mode = st.session_state.get('zone_mode', 'auto')
+    custom_zones = st.session_state.get('custom_zones', None)
+
     with st.sidebar:
         st.markdown('<div class="hud-label">// PARAMETRES //</div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
-        fcmax_default = int(info['hr_max']) if info.get('hr_max') else 190
-        fcmax = st.number_input("FCmax (bpm)", min_value=150, max_value=220,
-                                value=fcmax_default, step=1)
-        st.markdown("""
-        <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:#2A4050;margin-top:4px;">
-        Ajuste ta FCmax réelle pour des zones précises
+        st.markdown(f"""
+        <div style="font-family:'DM Mono',monospace;font-size:0.65rem;color:#41C8E8;margin-bottom:4px;">
+        FCmax : {fcmax} bpm
+        </div>
+        <div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:#2A4050;">
+        Zones : {'Manuel' if zone_mode == 'manual' else '% FCmax auto'}
         </div>""", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("↺ NOUVELLE ANALYSE"):
-            for k in ['gpx_bytes','gpx_filename']:
+            for k in ['gpx_bytes', 'gpx_filename']:
                 st.session_state.pop(k, None)
             st.rerun()
 
-    zones    = compute_hr_zones(df, fcmax) if info['has_hr'] else None
+    zones    = compute_hr_zones(df, fcmax, custom_zones if zone_mode == 'manual' else None) if info['has_hr'] else None
     drift    = cardiac_drift(df)           if info['has_hr'] else {'ef1':None,'ef2':None,'drift_pct':None,'quartiles':{}}
     hr_grade = hr_by_grade(df)             if info['has_hr'] else None
     recs     = generate_coach_recommendations(profile, fi, drift, cad_an, info, fcmax)
@@ -1266,7 +1346,8 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
             st.plotly_chart(chart_hr_pace_overlay(df), use_container_width=True)
 
         if zones:
-            st.markdown('<div class="hud-label" style="margin-top:1rem;margin-bottom:12px;">Distribution des zones FC</div>', unsafe_allow_html=True)
+            zone_mode_label = '· ZONES MANUELLES' if zone_mode == 'manual' else f'· % FCMAX AUTO ({fcmax} bpm)'
+            st.markdown(f'<div class="hud-label" style="margin-top:1rem;margin-bottom:12px;">Distribution des zones FC <span style="color:#41C8E8">{zone_mode_label}</span></div>', unsafe_allow_html=True)
             zone_cols = st.columns(5)
             zone_labels = ['Z1','Z2','Z3','Z4','Z5']
             zone_colors_hex = ['#1A3A4A','#1A5060','#1A8AAA','#C8A84B','#C84850']
