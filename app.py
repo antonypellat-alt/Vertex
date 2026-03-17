@@ -1,7 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
 ║         VERTEX — GPX Performance Analyzer  |  app.py            ║
-║         FC · Cadence · GAP · Zones · Découplage · v3.1          ║
+║         FC · Cadence · GAP · Zones · Découplage · v3.2          ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -1111,7 +1111,7 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     if email:
         pdf.cell(0, 4, clean(f"Plans envoyes a : {email}"), ln=True, align="C")
     pdf.cell(0, 4,
-        clean(f"VERTEX v3.1 — GAP Minetti (2002) — FCmax: {fcmax} bpm — {datetime.now().strftime('%d/%m/%Y')}"),
+        clean(f"VERTEX v3.2 — GAP Minetti (2002) — FCmax: {fcmax} bpm — {datetime.now().strftime('%d/%m/%Y')}"),
         ln=True, align="C")
 
     return bytes(pdf.output())
@@ -1125,7 +1125,7 @@ def render_landing():
     st.markdown("<br>", unsafe_allow_html=True)
     col_l, col_c, col_r = st.columns([1, 2, 1])
     with col_c:
-        st.markdown('<div class="hud-label">// SYSTEM ONLINE — v3.1 //</div>', unsafe_allow_html=True)
+        st.markdown('<div class="hud-label">// SYSTEM ONLINE — v3.2 //</div>', unsafe_allow_html=True)
         st.markdown('<div class="vertex-title">VERTEX</div>', unsafe_allow_html=True)
         st.markdown('<div class="vertex-sub">PERFORMANCE INTELLIGENCE</div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1252,7 +1252,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     cad_an   = cadence_analysis(df)
 
     # Récupération FCmax et zones depuis session_state (saisis sur la landing)
-    fcmax = st.session_state.get('fcmax', int(info['hr_max']) if info.get('hr_max') else 190)
+    fcmax = int(st.session_state.get('fcmax', int(info['hr_max']) if info.get('hr_max') else 190))
     zone_mode = st.session_state.get('zone_mode', 'auto')
     custom_zones = st.session_state.get('custom_zones', None)
 
@@ -1268,7 +1268,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
         </div>""", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("↺ NOUVELLE ANALYSE"):
-            for k in ['gpx_bytes', 'gpx_filename']:
+            for k in ['gpx_bytes', 'gpx_filename', 'fcmax', 'zone_mode', 'custom_zones']:
                 st.session_state.pop(k, None)
             st.rerun()
 
@@ -1281,7 +1281,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     col_title, col_badge = st.columns([4, 1])
     with col_title:
         st.markdown(
-            f'<div class="hud-label">// ANALYSE COMPLETE — v3.1 //</div>'
+            f'<div class="hud-label">// ANALYSE COMPLETE — v3.2 //</div>'
             f'<div style="font-family:Barlow Condensed,sans-serif;font-size:1.8rem;'
             f'font-weight:700;letter-spacing:0.15em;color:#ffffff">'
             f'{info["name"].upper()}</div>',
