@@ -1145,6 +1145,14 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     pdf.cell(0, 4,
         clean(f"VERTEX v3.3 — GAP Minetti (2002) — FCmax: {fcmax} bpm — {datetime.now().strftime('%d/%m/%Y')}"),
         ln=True, align="C")
+    pdf.set_font("Courier", "", 5)
+    pdf.set_text_color(20, 35, 45)
+    pdf.multi_cell(0, 3,
+        clean("AVERTISSEMENT : VERTEX est un outil d'analyse sportive a usage informatif uniquement. "
+              "Les donnees produites ne constituent pas un avis medical. "
+              "Consultez un professionnel de sante pour toute decision relative a votre condition physique. "
+              "© 2025 VERTEX Performance Intelligence — BSL 1.1"),
+        align="C")
 
     return bytes(pdf.output())
 
@@ -1255,7 +1263,6 @@ def render_landing():
             </div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("""
     <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:#1A2A35;text-align:center;letter-spacing:0.1em;">
     EXPORT GPX AVEC FC : Garmin Connect → Activité → ··· → Exporter l'original &nbsp;|&nbsp;
@@ -1266,6 +1273,7 @@ def render_landing():
     Consultez un professionnel de santé pour toute décision relative à votre condition physique. © 2025 VERTEX Performance Intelligence — BSL 1.1
     </div>
     """, unsafe_allow_html=True)
+
 
 def render_dashboard(gpx_bytes: bytes, filename: str):
     with st.spinner("Analyse du fichier GPX..."):
