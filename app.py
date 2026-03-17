@@ -504,7 +504,13 @@ def compute_hr_zones(df: pd.DataFrame, fcmax: int, custom_zones: dict = None) ->
 # ── Découplage cardiaque ────────────────────────────────────────
 
 def cardiac_drift(df: pd.DataFrame) -> dict:
-    flat = df[(df['grade'].abs() < 3) & (df['velocity'] > 0.3) & (df['hr'] > 80)].copy()
+    flat = df[
+        (df['grade'].abs() < 3) &
+        (df['velocity'] > 0.3) &
+        (df['hr'] > 80) &
+        (df['velocity'].notna()) &   # PATCH 3 : masque NaN explicite
+        (df['hr'].notna())
+    ].copy()
     if len(flat) < 20:
         return {'ef1': None, 'ef2': None, 'drift_pct': None, 'quartiles': {}}
 
@@ -513,9 +519,9 @@ def cardiac_drift(df: pd.DataFrame) -> dict:
 
     def ef(sub):
         if len(sub) == 0: return None
-        v  = sub['velocity'].mean()
-        hr = sub['hr'].mean()
-        return (v / hr) * 100 if hr > 0 else None
+        v  = sub['velocity'].dropna().mean()   # PATCH 3 : dropna sur calcul
+        hr = sub['hr'].dropna().mean()
+        return (v / hr) * 100 if hr and hr > 0 else None
 
     ef1 = ef(flat.iloc[:mid])
     ef2 = ef(flat.iloc[mid:])
@@ -591,26 +597,18 @@ def hr_by_grade(df: pd.DataFrame) -> pd.DataFrame:
 # ── Analyse cadence ─────────────────────────────────────────────
 
 def cadence_analysis(df: pd.DataFrame) -> dict:
-    # FIX v3.1 : seuil filtre relevé à 80 (post-multiplication ×2)
-    valid = df[df['cadence'] > 80]['cadence']
+    valid = df[df['cadence'] > 80]['cadence'].dropna()
     if len(valid) < 10:
         return {'mean': None, 'max': None, 'dist': {}, 'optimal_pct': None}
 
-    # FIX v3.1 : bins recalculés pour des valeurs post-×2 (150–210 ppm réaliste trail)
-    bins = {'<150': 0, '150-160': 0, '160-170': 0, '170-180': 0,
-            '180-190': 0, '190-200': 0, '>200': 0}
-    for c in valid:
-        if c < 150:     bins['<150'] += 1
-        elif c < 160:   bins['150-160'] += 1
-        elif c < 170:   bins['160-170'] += 1
-        elif c < 180:   bins['170-180'] += 1
-        elif c < 190:   bins['180-190'] += 1
-        elif c <= 200:  bins['190-200'] += 1
-        else:           bins['>200'] += 1
-
+    # PATCH 1 : pd.cut vectorisé — remplace la boucle for Python
+    bin_edges  = [0, 150, 160, 170, 180, 190, 200, 999]
+    bin_labels = ['<150', '150-160', '160-170', '170-180', '180-190', '190-200', '>200']
+    cuts = pd.cut(valid, bins=bin_edges, labels=bin_labels, right=False)
+    counts = cuts.value_counts().reindex(bin_labels, fill_value=0)
     total = len(valid)
-    pct = {k: v/total*100 for k, v in bins.items()}
-    # Zone optimale trail : 170-190 ppm (équivalent 85-95 ppm unilatéral Garmin)
+    pct = (counts / total * 100).to_dict()
+
     optimal_pct = pct.get('170-180', 0) + pct.get('180-190', 0) + pct.get('190-200', 0)
 
     return {
