@@ -1255,7 +1255,8 @@ def render_landing():
             </div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
- st.markdown("""
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("""
     <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:#1A2A35;text-align:center;letter-spacing:0.1em;">
     EXPORT GPX AVEC FC : Garmin Connect → Activité → ··· → Exporter l'original &nbsp;|&nbsp;
     Strava → utiliser Garmin Connect directement (Strava supprime la FC à l'export GPX)
@@ -1265,7 +1266,6 @@ def render_landing():
     Consultez un professionnel de santé pour toute décision relative à votre condition physique. © 2025 VERTEX Performance Intelligence — BSL 1.1
     </div>
     """, unsafe_allow_html=True)
-
 
 def render_dashboard(gpx_bytes: bytes, filename: str):
     with st.spinner("Analyse du fichier GPX..."):
