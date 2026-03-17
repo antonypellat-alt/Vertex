@@ -1,3 +1,6 @@
+# © 2025 VERTEX Performance Intelligence — All rights reserved.
+# Licensed under BSL 1.1. Commercial use requires explicit authorization.
+# Contact: antony.pellat@gmail.com 
 """
 ╔══════════════════════════════════════════════════════════════════╗
 ║         VERTEX — GPX Performance Analyzer  |  app.py            ║
