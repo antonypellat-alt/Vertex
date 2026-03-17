@@ -85,7 +85,9 @@ python -m streamlit run app.py
 
 ## Licence
 
-Projet en développement — usage personnel et coaching.
+BSL 1.1 — © 2025 VERTEX Performance Intelligence.  
+Usage commercial interdit sans autorisation explicite.  
+Contact : antony.pellat@gmail.com
 
 ---
 
