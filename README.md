@@ -1,3 +1,6 @@
+> ⚠️ **License**: BSL 1.1 — Usage commercial interdit sans autorisation.
+> © 2025 VERTEX Performance Intelligence
+> 
 # Vertex
 # ▲ VERTEX — Performance Intelligence
 
