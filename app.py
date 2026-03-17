@@ -491,7 +491,7 @@ def compute_hr_zones(df: pd.DataFrame, fcmax: int, custom_zones: dict = None) ->
         'Z5': (0.90, 1.01),
     }
     zone_bpm  = {z: (int(lo*fcmax), int(hi*fcmax)) for z, (lo, hi) in thresholds.items()}
-    bins      = [lo * fcmax for lo, _ in thresholds.values()] + [thresholds['Z5'][1] * fcmax]
+    bins = [lo * fcmax for lo, _ in thresholds.values()] + [250]  # 250 bpm = plafond absolu
     labels    = ['Z1','Z2','Z3','Z4','Z5']
     # FIX v3.3 : vectorisé — pd.cut + groupby remplace iterrows
     valid['zone'] = pd.cut(valid['hr'], bins=bins, labels=labels, right=False)
