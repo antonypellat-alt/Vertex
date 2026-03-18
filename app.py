@@ -330,9 +330,9 @@ def render_landing():
             label_visibility="visible",
         )
         if uploaded:
-          st.session_state['gpx_bytes_pending'] = uploaded.read()
-          st.session_state['gpx_filename']      = uploaded.name
-          st.rerun()
+            st.session_state['gpx_bytes_pending'] = uploaded.read()
+            st.session_state['gpx_filename']      = uploaded.name
+            st.rerun()
 
         if st.session_state.get('gpx_bytes_pending'):
             st.markdown("<br>", unsafe_allow_html=True)
@@ -385,12 +385,12 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                     st.session_state.pop(k, None)
                 st.rerun()
             return
-          
-    info     = extract_race_info(df, filename)
-    fi       = fatigue_index(df)
-    flat_v   = flat_pace_estimate(df)
-    grade_df = grade_pace_profile(df)
-    profile  = classify_profile(fi['decay_ratio'], flat_v)
+
+        info     = extract_race_info(df, filename)
+        fi       = fatigue_index(df)
+        flat_v   = flat_pace_estimate(df)
+        grade_df = grade_pace_profile(df)
+        profile  = classify_profile(fi['decay_ratio'], flat_v)
 
     # Sprint 2 ④ : détection marche — enrichit df avec colonne is_walk
     df       = detect_walk_segments(df)
@@ -977,3 +977,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
