@@ -68,7 +68,7 @@ def chart_elevation(df: pd.DataFrame) -> go.Figure:
 
     fig.update_layout(**_layout(
         height=180,
-        showlegend=df['is_walk'].any() if 'is_walk' in df.columns else False,
+        showlegend=bool(df['is_walk'].any()) if 'is_walk' in df.columns else False,
         legend=dict(bgcolor='rgba(0,0,0,0)', font=dict(color='#4A6070', size=9)),
         yaxis_title="m",
         xaxis_title="km",
