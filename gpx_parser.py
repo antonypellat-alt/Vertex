@@ -41,8 +41,11 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
     # v3.3 : collecte tous les segments <trkseg>
     trkpts = root.findall('.//g:trkpt', ns)
     if not trkpts:
+        # F2 : fallback sans namespace GPX, mais on conserve ns pour les
+        # extensions Garmin imbriquées ({ns_uri}hr, {ns_uri}cad).
+        # ns={} efface le namespace → find('g:ele') silencieux.
         trkpts = root.findall('.//trkpt')
-        ns = {}
+        # ns reste inchangé : les extensions iter() sont résolues par endswith()
 
     if len(trkpts) < 10:
         raise ValueError("GPX trop court — moins de 10 points.")
@@ -53,9 +56,13 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
         lon = float(pt.get('lon', 0))
 
         ele_el = pt.find('g:ele', ns) if ns else pt.find('ele')
+        if ele_el is None:
+            ele_el = pt.find('ele')  # F2 : fallback sans namespace
         ele = float(ele_el.text) if ele_el is not None else 0.0
 
         time_el = pt.find('g:time', ns) if ns else pt.find('time')
+        if time_el is None:
+            time_el = pt.find('time')  # F2 : fallback sans namespace
         t = None
         if time_el is not None:
             try:
@@ -75,6 +82,7 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
                     pass
 
         cad = None
+        cad_ambiguous = False
         for cad_el in pt.iter():
             if cad_el.tag.endswith('}cad') or cad_el.tag == 'cad':
                 try:
@@ -82,12 +90,14 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
                     if v > 30:
                         # v3.1 : Garmin stocke la cadence unilatérale → ×2
                         # sauf si déjà > 110 (export SPM total direct)
+                        # F3 : zone borderline 100-110 → multiplication douteuse, on flag
                         cad = v * 2 if v < 110 else v
+                        cad_ambiguous = (100 <= v < 110)  # ex: 109 → 218, non garanti
                 except Exception:
                     pass
 
         rows.append({'lat': lat, 'lon': lon, 'elevation': ele, 'time': t,
-                     'hr': hr, 'cadence': cad})
+                     'hr': hr, 'cadence': cad, 'cad_ambiguous': cad_ambiguous})
 
     df = pd.DataFrame(rows)
 
@@ -168,3 +178,4 @@ def extract_race_info(df: pd.DataFrame, filename: str) -> dict:
         'hr_max': hr_max,
         'cad_mean': cad_mean,
     }
+
