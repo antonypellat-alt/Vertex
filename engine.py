@@ -268,6 +268,78 @@ def cardiac_drift(df: pd.DataFrame) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════
+# DÉTECTION MARCHE ACTIVE — Sprint 2 item ④
+# ══════════════════════════════════════════════════════════════════
+
+def detect_walk_segments(df: pd.DataFrame,
+                         grade_threshold: float = 15.0,
+                         velocity_threshold: float = 1.5) -> pd.DataFrame:
+    """
+    Ajoute la colonne 'is_walk' au DataFrame.
+    Critères : pente > grade_threshold% ET vitesse < velocity_threshold m/s.
+    Ne s'applique que sur les sections en montée (grade positif).
+    Retourne le DataFrame avec la colonne is_walk ajoutée.
+    """
+    df = df.copy()
+    df['is_walk'] = (
+        (df['grade'] > grade_threshold) &
+        (df['velocity'] < velocity_threshold) &
+        (df['velocity'] > 0.1)   # filtre les arrêts complets (ravitos, etc.)
+    )
+    return df
+
+
+def walk_stats(df: pd.DataFrame, grade_threshold: float = 15.0) -> dict:
+    """
+    Calcule les statistiques de marche active sur sections raides.
+    Retourne un dict avec walk_ratio, walk_time_min, run_time_min,
+    walk_distance_m, n_walk_segments.
+    Retourne None si pas de section >grade_threshold dans la course.
+    """
+    if 'is_walk' not in df.columns:
+        df = detect_walk_segments(df, grade_threshold)
+
+    # Sections raides uniquement (grade > seuil)
+    steep = df[df['grade'] > grade_threshold].copy()
+    if len(steep) < 5:
+        return {
+            'walk_ratio':       None,
+            'walk_time_min':    None,
+            'run_time_min':     None,
+            'walk_distance_m':  None,
+            'n_walk_segments':  0,
+            'has_steep':        False,
+        }
+
+    steep_walk = steep[steep['is_walk']]
+    steep_run  = steep[~steep['is_walk']]
+
+    walk_time = steep_walk['dt'].sum() if 'dt' in steep_walk.columns else 0
+    run_time  = steep_run['dt'].sum()  if 'dt' in steep_run.columns  else 0
+    total_steep_time = walk_time + run_time
+
+    walk_ratio = walk_time / total_steep_time if total_steep_time > 0 else 0
+
+    # Compter les segments de marche consécutifs
+    if 'is_walk' in df.columns and len(df) > 1:
+        walk_series = df['is_walk'].astype(int)
+        n_segments  = int(((walk_series.diff() == 1).sum()))
+    else:
+        n_segments = 0
+
+    walk_distance = float(steep_walk['dd'].sum()) if 'dd' in steep_walk.columns else 0
+
+    return {
+        'walk_ratio':       round(walk_ratio * 100, 1),   # en %
+        'walk_time_min':    round(walk_time / 60, 1),
+        'run_time_min':     round(run_time / 60, 1),
+        'walk_distance_m':  round(walk_distance),
+        'n_walk_segments':  n_segments,
+        'has_steep':        True,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════
 # SPLITS PAR KM
 # ══════════════════════════════════════════════════════════════════
 
@@ -296,6 +368,9 @@ def compute_km_splits(df: pd.DataFrame) -> list:
         # v3.1 : seuil filtre cadence relevé à 80
         cad_mean = seg.loc[seg['cadence'] > 80, 'cadence'].mean() if seg['cadence'].notna().any() else None
 
+        # Sprint 2 ④ : flag marche active dans ce km
+        has_walk = bool(seg['is_walk'].any()) if 'is_walk' in seg.columns else False
+
         splits.append({
             'km':       km + 1,
             'pace_s':   pace,
@@ -306,6 +381,7 @@ def compute_km_splits(df: pd.DataFrame) -> list:
             'hr':       round(hr_mean) if hr_mean else None,
             'cadence':  round(cad_mean) if cad_mean else None,
             'velocity': v,
+            'has_walk': has_walk,
         })
     return splits
 
@@ -389,6 +465,28 @@ def generate_coach_recommendations(
     optimal_pct = cad_analysis.get('optimal_pct', 0)
     hr_mean     = info.get('hr_mean')
 
+    # ── Sprint 2 ⑦ : pondération par D+ ────────────────────────
+    # dp_ratio = D+ par km. Au-delà de 30 m/km, chaque tranche de 10 m/km
+    # ajoute 3% de tolérance sur les seuils GAP (effort réellement plus dur).
+    # Ex : 58 m/km (Wild 110) → +8.4% tolérance → seuil critique 15% → ~23%
+    distance_km   = info.get('distance_km', 1)
+    elev_gain     = info.get('elevation_gain', 0)
+    dp_ratio      = elev_gain / distance_km if distance_km > 0 else 0
+    dp_tolerance  = max(0.0, (dp_ratio - 30) / 10 * 3)  # % de tolérance supplémentaire
+
+    # Seuils ajustés — seulement si parcours montagneux (dp_ratio > 30)
+    gap_crit_threshold = 15 + dp_tolerance   # ex: 58m/km → 23.4%
+    gap_warn_threshold = 7  + dp_tolerance   # ex: 58m/km → 15.4%
+    gap_good_threshold = 4  + dp_tolerance   # ex: 58m/km → 12.4%
+
+    # Label contexte pour reformulation
+    if dp_ratio >= 50:
+        ctx_deniv = f"sur un profil très engagé ({dp_ratio:.0f} m/km D+)"
+    elif dp_ratio >= 30:
+        ctx_deniv = f"sur un profil montagneux ({dp_ratio:.0f} m/km D+)"
+    else:
+        ctx_deniv = f"sur ce profil ({dp_ratio:.0f} m/km D+)"
+
     # ── Intensité globale ────────────────────────────────────────
     if hr_mean and fcmax:
         hr_pct = hr_mean / fcmax * 100
@@ -460,34 +558,44 @@ def generate_coach_recommendations(
                     "introduis 1 séance/semaine de travail spécifique au seuil (2×20min à FC seuil)."
         })
 
-    # ── Fatigue GAP ──────────────────────────────────────────────
+    # ── Fatigue GAP — seuils pondérés D+ ────────────────────────
     if not math.isnan(dp):
-        if dp > 15:
+        deniv_note = (
+            f" Tolérance de {dp_tolerance:.1f}% appliquée {ctx_deniv}."
+            if dp_tolerance > 0 else ""
+        )
+        if dp > gap_crit_threshold:
             recs.append({
                 'level': 'crit',
                 'title': f'Décrochage GAP critique : -{dp:.1f}%',
-                'body': f"Perte de vitesse GAP de {dp:.1f}% entre Q1 et Q4. "
-                        "Le moteur s'est clairement éteint en 2ème partie de course. "
-                        "Travail prioritaire : 4 semaines de volume Z2 pur (65-72% FCmax), "
-                        "sorties longues progressives +200m D+/semaine. "
-                        "Revoir aussi la stratégie de départ : le Q1 était probablement trop rapide."
+                'body': (
+                    f"Perte de vitesse GAP de {dp:.1f}% entre Q1 et Q4.{deniv_note} "
+                    "Le moteur s'est clairement éteint en 2ème partie de course. "
+                    "Travail prioritaire : 4 semaines de volume Z2 pur (65-72% FCmax), "
+                    "sorties longues progressives +200m D+/semaine. "
+                    "Revoir aussi la stratégie de départ : le Q1 était probablement trop rapide."
+                )
             })
-        elif dp > 7:
+        elif dp > gap_warn_threshold:
             recs.append({
                 'level': 'warn',
                 'title': f'Décrochage GAP modéré : -{dp:.1f}%',
-                'body': f"Perte de {dp:.1f}% de vitesse ajustée en fin de course. "
-                        "Ajoute 1 sortie longue hebdomadaire avec les 30 dernières minutes "
-                        "en allure soutenue (negative split training). "
-                        "Simule les conditions course : nutrition identique, même dénivelé."
+                'body': (
+                    f"Perte de {dp:.1f}% de vitesse ajustée en fin de course.{deniv_note} "
+                    "Ajoute 1 sortie longue hebdomadaire avec les 30 dernières minutes "
+                    "en allure soutenue (negative split training). "
+                    "Simule les conditions course : nutrition identique, même dénivelé."
+                )
             })
-        elif dp < 4 and not math.isnan(dr):
+        elif dp < gap_good_threshold and not math.isnan(dr):
             recs.append({
                 'level': 'info',
                 'title': f"Très bonne gestion de l'effort : -{dp:.1f}% GAP",
-                'body': "Ratio Q4/Q1 excellent. Tu as géré ton allure de façon optimale. "
-                        "Pour franchir un palier : travaille maintenant la vitesse de base — "
-                        "2×/semaine de fractionné court (8-10×200m ou 6-8×400m à 95-100% VMA)."
+                'body': (
+                    f"Ratio Q4/Q1 excellent {ctx_deniv}. Tu as géré ton allure de façon optimale. "
+                    "Pour franchir un palier : travaille maintenant la vitesse de base — "
+                    "2×/semaine de fractionné court (8-10×200m ou 6-8×400m à 95-100% VMA)."
+                )
             })
 
     # ── Cadence ──────────────────────────────────────────────────
@@ -521,7 +629,7 @@ def generate_coach_recommendations(
                 recs.append({
                     'level': 'warn',
                     'title': 'Endurance spécifique insuffisante en fin de course',
-                    'body': "Q4/Q1 < 0.80 : tu perds plus de 20% de vitesse GAP en dernière partie. "
+                    'body': f"Q4/Q1 < 0.80 : tu perds plus de 20% de vitesse GAP en dernière partie {ctx_deniv}. "
                             "Simulation de fin de course : inclure des blocs de 45-60 min à allure course "
                             "en fin de sortie longue (run fatigue). "
                             "Travaille aussi le ravitaillement : recalculer l'apport calorique/heure."
@@ -552,3 +660,109 @@ def _strength_advice(profile, drift_pct, cad_mean, dp):
     return ("La régularité de ton allure sur terrain difficile montre une bonne lecture du parcours. "
             "Pour progresser : travaille la spécificité du profil de ta prochaine course "
             "(enchaîner montée/descente en blocs de 15-20 min sans récupération).")
+
+
+# ══════════════════════════════════════════════════════════════════
+# SCORE GLOBAL — Sprint 2 item ⑧
+# ══════════════════════════════════════════════════════════════════
+
+def compute_performance_score(fi: dict, drift: dict) -> dict:
+    """
+    Score global de performance VERTEX — 0 à 100.
+
+    Pondération Elena :
+      GAP Q4/Q1          50%  — endurance moteur
+      Dérive EF          35%  — efficacité cardiaque
+      Variance Q1→Q4     15%  — régularité de l'effort
+
+    Règles absolues :
+      - Si EF insufficient ou pattern COLLAPSE → poids EF redistribués au GAP
+      - Score partiel signalé explicitement dans le return
+      - Chaque composante exposée séparément pour l'affichage
+
+    Returns dict :
+      score          int   0-100
+      score_gap      int   0-100  (composante GAP)
+      score_ef       int | None   (composante EF — None si non disponible)
+      score_var      int   0-100  (composante variance)
+      partial        bool  True si score partiel
+      partial_reason str | None
+      weights        dict  poids réels utilisés
+    """
+    # ── Composante 1 : GAP Q4/Q1 ────────────────────────────────
+    # decay_ratio : 1.0 = parfait, 0.0 = effondrement total
+    # On normalise [0.7, 1.0] → [0, 100] (en dessous de 0.70 c'est catastrophique)
+    decay_ratio = fi.get('decay_ratio', float('nan'))
+    if math.isnan(decay_ratio):
+        score_gap = 0
+    else:
+        score_gap = int(round(max(0, min(100, (decay_ratio - 0.70) / 0.30 * 100))))
+
+    # ── Composante 2 : Variance inter-quartiles Q1→Q4 ───────────
+    # Mesure la régularité : faible variance = bon score
+    # On calcule l'écart-type des 4 quartiles GAP, normalisé
+    quartiles = fi.get('quartiles', {})
+    q_vals = [v for v in quartiles.values() if v and not math.isnan(v)]
+    if len(q_vals) >= 2:
+        q_arr   = np.array(q_vals)
+        q_mean  = float(np.mean(q_arr))
+        q_std   = float(np.std(q_arr))
+        # CV (coefficient de variation) : 0% = parfait, 10%+ = très variable
+        cv = (q_std / q_mean * 100) if q_mean > 0 else 10
+        score_var = int(round(max(0, min(100, (1 - cv / 10) * 100))))
+    else:
+        score_var = 50  # neutre si données insuffisantes
+
+    # ── Composante 3 : Dérive EF ─────────────────────────────────
+    # drift_pct : 0% = parfait, -20% = très mauvais
+    # COLLAPSE ou insufficient → composante non disponible
+    pattern      = drift.get('pattern')
+    insufficient = drift.get('insufficient_data', False)
+    drift_pct    = drift.get('drift_pct')
+
+    ef_unavailable = insufficient or pattern == 'COLLAPSE'
+
+    if ef_unavailable or drift_pct is None:
+        score_ef = None
+        partial  = True
+        if pattern == 'COLLAPSE':
+            partial_reason = "Score partiel — effondrement CV détecté (EF non interprétable)"
+        else:
+            partial_reason = "Score partiel — terrain insuffisamment plat pour calculer l'EF"
+    else:
+        # drift_pct ∈ [-20, 0] → score ∈ [0, 100]
+        # Au-delà de -20% on plafonne à 0
+        score_ef       = int(round(max(0, min(100, (1 + drift_pct / 20) * 100))))
+        partial        = False
+        partial_reason = None
+
+    # ── Pondération réelle ───────────────────────────────────────
+    if ef_unavailable:
+        # Redistribution des 35% EF → GAP (total GAP = 85%)
+        w_gap = 0.85
+        w_ef  = 0.00
+        w_var = 0.15
+    else:
+        w_gap = 0.50
+        w_ef  = 0.35
+        w_var = 0.15
+
+    # ── Score final ──────────────────────────────────────────────
+    ef_contrib = score_ef if score_ef is not None else 0
+    score_raw  = w_gap * score_gap + w_ef * ef_contrib + w_var * score_var
+    score      = int(round(min(100, max(0, score_raw))))
+
+    return {
+        'score':          score,
+        'score_gap':      score_gap,
+        'score_ef':       score_ef,
+        'score_var':      score_var,
+        'partial':        partial,
+        'partial_reason': partial_reason,
+        'weights': {
+            'gap': w_gap,
+            'ef':  w_ef,
+            'var': w_var,
+        },
+    }
+
