@@ -80,11 +80,12 @@ def parse_tcx(file_bytes: bytes) -> pd.DataFrame:
             except Exception:
                 pass
 
-        # FC
+        # FC — chercher HeartRateBpm/Value en priorité pour éviter de capter
+        # d'autres balises <Value> (distance, vitesse) présentes dans certains TCX Garmin
         hr = None
-        hr_bpm_el = tp.find('.//tcx:Value', ns) if ns else tp.find('.//Value')
+        hr_bpm_el = tp.find('.//tcx:HeartRateBpm/tcx:Value', ns) if ns else tp.find('.//HeartRateBpm/Value')
         if hr_bpm_el is None:
-            hr_bpm_el = tp.find('.//tcx:HeartRateBpm/tcx:Value', ns) if ns else tp.find('.//HeartRateBpm/Value')
+            hr_bpm_el = tp.find('.//tcx:Value', ns) if ns else tp.find('.//Value')
         if hr_bpm_el is not None:
             try:
                 v = int(hr_bpm_el.text)
@@ -160,3 +161,4 @@ def parse_tcx(file_bytes: bytes) -> pd.DataFrame:
         df['cadence'] = df['cadence'].interpolate(limit=10).rolling(5, center=True, min_periods=1).mean()
 
     return df.reset_index(drop=True)
+
