@@ -207,18 +207,20 @@ def cardiac_drift(df: pd.DataFrame) -> dict:
     ef2 = ef(flat.iloc[mid:])
     drift_ef = ((ef2 - ef1) / ef1 * 100) if (ef1 and ef2 and ef1 > 0) else None
 
-    # EF par quartile de distance totale
-    total_dist = df['distance'].iloc[-1]
-    q_size = total_dist / 4
+    # EF par quartile de temps total — F6 : aligné sur ef1/ef2 (demi-temps)
+    # Cohérence : découplage cardiaque = phénomène temporel, pas spatial
+    total_time = flat['time_s'].max() - flat['time_s'].min()
+    t_start    = flat['time_s'].min()
+    q_size_t   = total_time / 4
     ef_q = {}
     for i in range(1, 5):
         q = flat[
-            (flat['distance'] >= (i-1)*q_size) &
-            (flat['distance'] < i*q_size)
+            (flat['time_s'] >= t_start + (i-1)*q_size_t) &
+            (flat['time_s'] <  t_start + i*q_size_t)
         ]
         ef_q[f'Q{i}'] = ef(q)
 
-    # FC moyenne par quartile sur plat
+    # FC moyenne par quartile temps (cohérence F6)
     def fc_mean(sub):
         v = sub['hr'].dropna()
         return float(v.mean()) if len(v) > 3 else None
@@ -226,8 +228,8 @@ def cardiac_drift(df: pd.DataFrame) -> dict:
     fc_q = {}
     for i in range(1, 5):
         q = flat[
-            (flat['distance'] >= (i-1)*q_size) &
-            (flat['distance'] < i*q_size)
+            (flat['time_s'] >= t_start + (i-1)*q_size_t) &
+            (flat['time_s'] <  t_start + i*q_size_t)
         ]
         fc_q[f'Q{i}'] = fc_mean(q)
 
@@ -335,9 +337,9 @@ def walk_stats(df: pd.DataFrame, grade_threshold: float = 15.0) -> dict:
 
     walk_ratio = walk_time / total_steep_time if total_steep_time > 0 else 0
 
-    # Compter les segments de marche consécutifs
-    if 'is_walk' in df.columns and len(df) > 1:
-        walk_series = df['is_walk'].astype(int)
+    # Compter les segments de marche consécutifs — sur steep uniquement (F7)
+    if 'is_walk' in steep.columns and len(steep) > 1:
+        walk_series = steep['is_walk'].astype(int)
         n_segments  = int(((walk_series.diff() == 1).sum()))
     else:
         n_segments = 0
@@ -722,9 +724,11 @@ def compute_performance_score(fi: dict, drift: dict) -> dict:
         q_arr   = np.array(q_vals)
         q_mean  = float(np.mean(q_arr))
         q_std   = float(np.std(q_arr))
-        # CV (coefficient de variation) : 0% = parfait, 10%+ = très variable
-        cv = (q_std / q_mean * 100) if q_mean > 0 else 10
-        score_var = int(round(max(0, min(100, (1 - cv / 10) * 100))))
+        # CV (coefficient de variation) : 0% = parfait
+        # Seuil 15% : variance normale sur trail technique (F8 — seuil 10% trop pénalisant)
+        # Au-delà de 15% CV = gestion effort réellement problématique
+        cv = (q_std / q_mean * 100) if q_mean > 0 else 15
+        score_var = int(round(max(0, min(100, (1 - cv / 15) * 100))))
     else:
         score_var = 50  # neutre si données insuffisantes
 
@@ -780,3 +784,4 @@ def compute_performance_score(fi: dict, drift: dict) -> dict:
             'var': w_var,
         },
     }
+
