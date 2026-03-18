@@ -1,7 +1,7 @@
-streamlit==1.45.0
-pandas==2.2.3
-numpy==1.26.4
-plotly==5.24.1
-scipy==1.13.1
-fpdf2==2.8.2
-gpxpy==1.6.2
+streamlit
+pandas
+numpy
+scipy
+plotly
+fpdf2
+gpxpy
