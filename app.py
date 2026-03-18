@@ -1,14 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
 ║         VERTEX — app.py  (UI uniquement)                        ║
-║         FC · Cadence · GAP · Zones · Découplage · v3.4          ║
+║         FC · Cadence · GAP · Zones · Découplage · v3.5          ║
 ╚══════════════════════════════════════════════════════════════════╝
 
-Architecture modulaire v3.4 :
-  parser.py  — GPX parsing, Haversine, extract_race_info
-  engine.py  — GAP, fatigue, FC, cadence, recommandations
-  charts.py  — Plotly charts, PDF generator
-  app.py     — UI Streamlit uniquement (ce fichier)
+Architecture modulaire v3.5 :
+  gpx_parser.py — GPX parsing, Haversine, extract_race_info
+  engine.py     — GAP, fatigue, FC, cadence, recommandations
+  charts.py     — Plotly charts, PDF generator
+  app.py        — UI Streamlit uniquement (ce fichier)
 """
 
 import math
@@ -246,7 +246,7 @@ def render_landing():
     st.markdown("<br>", unsafe_allow_html=True)
     col_l, col_c, col_r = st.columns([1, 2, 1])
     with col_c:
-        st.markdown('<div class="hud-label">// SYSTEM ONLINE — v3.4 //</div>', unsafe_allow_html=True)
+        st.markdown('<div class="hud-label">// SYSTEM ONLINE — v3.5 //</div>', unsafe_allow_html=True)
         st.markdown('<div class="vertex-title">VERTEX</div>', unsafe_allow_html=True)
         st.markdown('<div class="vertex-sub">PERFORMANCE INTELLIGENCE</div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
@@ -432,7 +432,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     col_title, col_badge = st.columns([4, 1])
     with col_title:
         st.markdown(
-            f'<div class="hud-label">// ANALYSE COMPLETE — v3.4 //</div>'
+            f'<div class="hud-label">// ANALYSE COMPLETE — v3.5 //</div>'
             f'<div style="font-family:Barlow Condensed,sans-serif;font-size:1.8rem;'
             f'font-weight:700;letter-spacing:0.15em;color:#ffffff">'
             f'{info["name"].upper()}</div>',
@@ -958,23 +958,26 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                 "⬇  TELECHARGER LE RAPPORT", data=pdf_bytes,
                 file_name=fname, mime="application/pdf",
             )
-            st.markdown("""
-            <div style="margin-top:20px;padding:14px 18px;background:#0D1520;
-                        border:1px solid #152030;border-left:3px solid #C8A84B;">
-                <div style="font-family:'DM Mono',monospace;font-size:0.58rem;
-                            color:#C8A84B;letter-spacing:0.2em;margin-bottom:6px">
-                    BETA FEEDBACK
-                </div>
-                <div style="font-family:'Barlow Condensed',sans-serif;font-size:1rem;
-                            font-weight:700;color:#ffffff;margin-bottom:8px">
-                    Cette analyse t'a été utile ?
-                </div>
-                <a href="https://tally.so/r/zxeJPM" target="_blank"
-                   style="font-family:'Barlow Condensed',sans-serif;font-size:0.9rem;
-                          color:#C8A84B;letter-spacing:0.15em;text-decoration:none;">
-                    ▶ 2 MINUTES DE FEEDBACK →
-                </a>
-            </div>""", unsafe_allow_html=True)
+
+    # ── Feedback beta — toujours visible sous la section PDF ────
+    st.markdown("""
+    <div style="margin-top:20px;padding:14px 18px;background:#0D1520;
+                border:1px solid #152030;border-left:3px solid #C8A84B;">
+        <div style="font-family:'DM Mono',monospace;font-size:0.58rem;
+                    color:#C8A84B;letter-spacing:0.2em;margin-bottom:6px;">
+            BETA FEEDBACK
+        </div>
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:1rem;
+                    font-weight:700;color:#ffffff;margin-bottom:8px;">
+            Cette analyse t'a été utile ?
+        </div>
+        <a href="https://tally.so/r/zxeJPM" target="_blank"
+           style="font-family:'Barlow Condensed',sans-serif;font-size:0.9rem;
+                  color:#C8A84B;letter-spacing:0.15em;text-decoration:none;">
+            ▶ 2 MINUTES DE FEEDBACK →
+        </a>
+    </div>""", unsafe_allow_html=True)
+
 
 # ══════════════════════════════════════════════════════════════════
 # 3 — MAIN
