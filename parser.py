@@ -170,3 +170,4 @@ def extract_race_info(df: pd.DataFrame, filename: str) -> dict:
         'hr_max': hr_max,
         'cad_mean': cad_mean,
     }
+
