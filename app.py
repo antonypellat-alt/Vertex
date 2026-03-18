@@ -23,6 +23,7 @@ from engine import (
     classify_profile, compute_hr_zones, cardiac_drift,
     compute_km_splits, hr_by_grade, cadence_analysis,
     generate_coach_recommendations, v_to_pace, ZONE_NAMES,
+    detect_walk_segments, walk_stats, compute_performance_score,
 )
 from charts import (
     chart_elevation, chart_pace, chart_hr, chart_hr_pace_overlay,
@@ -368,6 +369,11 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     flat_v   = flat_pace_estimate(df)
     grade_df = grade_pace_profile(df)
     profile  = classify_profile(fi['decay_ratio'], flat_v)
+
+    # Sprint 2 ④ : détection marche — enrichit df avec colonne is_walk
+    df       = detect_walk_segments(df)
+    wstats   = walk_stats(df)
+
     splits   = compute_km_splits(df)
     cad_an   = cadence_analysis(df)
 
@@ -399,6 +405,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     }
     hr_grade = hr_by_grade(df) if info['has_hr'] else None
     recs     = generate_coach_recommendations(profile, fi, drift, cad_an, info, fcmax)
+    perf     = compute_performance_score(fi, drift)
 
     # ── Header ──────────────────────────────────────────────────
     col_title, col_badge = st.columns([4, 1])
@@ -430,6 +437,156 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
         st.markdown(f'<br><span class="{badge_class}">{profile}</span>', unsafe_allow_html=True)
 
     st.markdown('<hr style="border-color:#152030;margin:0.5rem 0 1.5rem;">', unsafe_allow_html=True)
+
+    # ── Bloc VERDICT — Sprint 2 ⑨ ────────────────────────────────
+    # Verdict mono-dimensionnel basé sur GAP Q4/Q1 (seuils Elena)
+    # Ligne 2 contextuelle : ratio + perte + EF / COLLAPSE / pas de FC / GAP incalculable
+    _dr = fi.get('decay_ratio', float('nan'))
+    _dp = fi.get('decay_pct',   float('nan'))
+
+    if math.isnan(_dr):
+        # Cas : GAP incalculable (GPX trop court ou vitesse nulle)
+        _verdict_label  = 'DONNÉES INSUFFISANTES'
+        _verdict_color  = '#2A4050'
+        _verdict_sub    = "GAP non calculable — fichier GPX trop court ou vitesse nulle sur l'ensemble du parcours."
+    elif _dr >= 0.93:
+        _verdict_label  = 'SOLIDE'
+        _verdict_color  = '#41C8E8'
+    elif _dr >= 0.85:
+        _verdict_label  = 'ACCEPTABLE'
+        _verdict_color  = '#C8A84B'
+    else:
+        _verdict_label  = 'DÉCROCHÉ'
+        _verdict_color  = '#C84850'
+
+    # Ligne 2 — contextuelle si GAP calculable
+    if not math.isnan(_dr):
+        _ratio_str = f"Q4/Q1 : {_dr:.3f}  ·  Perte GAP : {_dp:.1f}%"
+
+        _drift_ctx = drift.get('pattern')
+        _drift_pct_val = drift.get('drift_pct')
+        _insuf = drift.get('insufficient_data', False)
+
+        if _drift_ctx == 'COLLAPSE':
+            _cp = drift.get('collapse_pct') or 0
+            _ef_str = f"  ·  EFFONDREMENT FC : {abs(_cp):.1f}%"
+        elif not _insuf and _drift_pct_val is not None:
+            _ef_str = f"  ·  Dérive EF : {_drift_pct_val:.1f}%"
+        elif _insuf:
+            _ef_str = "  ·  EF : terrain insuffisamment plat"
+        else:
+            _ef_str = ""  # pas de FC du tout
+
+        _verdict_sub = _ratio_str + _ef_str
+
+    st.markdown(f"""
+    <div style="padding:16px 24px;background:#0D1520;
+                border-left:4px solid {_verdict_color};margin-bottom:16px;
+                display:flex;align-items:center;gap:24px;">
+        <div>
+            <div style="font-family:'DM Mono',monospace;font-size:0.58rem;
+                        color:#2A4050;letter-spacing:0.22em;margin-bottom:4px;">
+                VERDICT
+            </div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:2.2rem;
+                        font-weight:900;letter-spacing:0.12em;color:{_verdict_color};
+                        line-height:1;">
+                {_verdict_label}
+            </div>
+        </div>
+        <div style="font-family:'DM Mono',monospace;font-size:0.68rem;
+                    color:#4A6070;line-height:1.6;border-left:1px solid #152030;
+                    padding-left:24px;">
+            {_verdict_sub}
+        </div>
+    </div>""", unsafe_allow_html=True)
+
+    # ── Score global — Sprint 2 ⑧ ────────────────────────────────
+    _score     = perf['score']
+    _s_gap     = perf['score_gap']
+    _s_ef      = perf['score_ef']
+    _s_var     = perf['score_var']
+    _partial   = perf['partial']
+    _p_reason  = perf['partial_reason'] or ''
+    _w         = perf['weights']
+
+    # Couleur du score global
+    if _score >= 80:   _score_color = '#41C8E8'
+    elif _score >= 60: _score_color = '#C8A84B'
+    else:              _score_color = '#C84850'
+
+    _sc1, _sc2, _sc3, _sc4 = st.columns([2, 1, 1, 1])
+    with _sc1:
+        st.markdown(f"""
+        <div style="background:#0D1520;border:1px solid #152030;
+                    border-top:2px solid {_score_color};padding:20px 24px;">
+            <div style="font-family:'DM Mono',monospace;font-size:0.6rem;
+                        color:#2A4050;letter-spacing:0.22em;">SCORE VERTEX</div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:4rem;
+                        font-weight:900;line-height:1;color:{_score_color};">
+                {_score}
+            </div>
+            <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:#3A5060;">
+                {"⚠ " + _p_reason if _partial else "Score complet · 3 composantes"}
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+    with _sc2:
+        _gap_color = '#41C8E8' if _s_gap >= 80 else '#C8A84B' if _s_gap >= 60 else '#C84850'
+        st.markdown(f"""
+        <div style="background:#0D1520;border:1px solid #152030;padding:16px;height:100%;">
+            <div style="font-family:'DM Mono',monospace;font-size:0.55rem;
+                        color:#2A4050;letter-spacing:0.18em;">
+                GAP Q4/Q1 · {int(_w['gap']*100)}%
+            </div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:2.4rem;
+                        font-weight:700;color:{_gap_color};">{_s_gap}</div>
+            <div style="background:#152030;height:4px;border-radius:2px;margin-top:8px;">
+                <div style="background:{_gap_color};height:4px;
+                            width:{_s_gap}%;border-radius:2px;"></div>
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+    with _sc3:
+        if _s_ef is not None:
+            _ef_color = '#41C8E8' if _s_ef >= 80 else '#C8A84B' if _s_ef >= 60 else '#C84850'
+            ef_val    = str(_s_ef)
+            ef_bar    = _s_ef
+        else:
+            _ef_color = '#2A4050'
+            ef_val    = 'N/A'
+            ef_bar    = 0
+        st.markdown(f"""
+        <div style="background:#0D1520;border:1px solid #152030;padding:16px;height:100%;">
+            <div style="font-family:'DM Mono',monospace;font-size:0.55rem;
+                        color:#2A4050;letter-spacing:0.18em;">
+                DÉRIVE EF · {int(_w['ef']*100)}%
+            </div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:2.4rem;
+                        font-weight:700;color:{_ef_color};">{ef_val}</div>
+            <div style="background:#152030;height:4px;border-radius:2px;margin-top:8px;">
+                <div style="background:{_ef_color};height:4px;
+                            width:{ef_bar}%;border-radius:2px;"></div>
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+    with _sc4:
+        _var_color = '#41C8E8' if _s_var >= 80 else '#C8A84B' if _s_var >= 60 else '#C84850'
+        st.markdown(f"""
+        <div style="background:#0D1520;border:1px solid #152030;padding:16px;height:100%;">
+            <div style="font-family:'DM Mono',monospace;font-size:0.55rem;
+                        color:#2A4050;letter-spacing:0.18em;">
+                RÉGULARITÉ · {int(_w['var']*100)}%
+            </div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:2.4rem;
+                        font-weight:700;color:{_var_color};">{_s_var}</div>
+            <div style="background:#152030;height:4px;border-radius:2px;margin-top:8px;">
+                <div style="background:{_var_color};height:4px;
+                            width:{_s_var}%;border-radius:2px;"></div>
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
 
     # ── KPIs ligne 1 ────────────────────────────────────────────
     total_s = info['total_time_s']
@@ -504,6 +661,31 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
             </div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Walk stats — Sprint 2 ④ ──────────────────────────────────
+    if wstats and wstats.get('has_steep') and wstats.get('walk_ratio') is not None:
+        walk_color = '#C8A84B' if wstats['walk_ratio'] > 30 else '#41C8E8'
+        st.markdown(f"""
+        <div style="padding:10px 18px;background:#0D1520;
+                    border-left:2px solid {walk_color};margin-bottom:12px;
+                    display:flex;gap:32px;align-items:center;">
+            <div>
+                <div style="font-family:'DM Mono',monospace;font-size:0.58rem;
+                            color:#2A4050;letter-spacing:0.2em;">MARCHE ACTIVE (pente >15%)</div>
+                <div style="font-family:'Barlow Condensed',sans-serif;font-size:1.6rem;
+                            font-weight:700;color:{walk_color};">
+                    {wstats['walk_ratio']:.0f}%
+                </div>
+                <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:#3A5060;">
+                    du temps sur sections raides
+                </div>
+            </div>
+            <div style="font-family:'DM Mono',monospace;font-size:0.65rem;color:#4A6070;line-height:1.8;">
+                Marche : {wstats['walk_time_min']:.0f} min
+                &nbsp;|&nbsp; Course : {wstats['run_time_min']:.0f} min
+                &nbsp;|&nbsp; {wstats['n_walk_segments']} segment(s) détecté(s)
+            </div>
+        </div>""", unsafe_allow_html=True)
 
     # ══ SECTION 1 : PROFIL DE COURSE ════════════════════════════
     st.markdown('<div class="section-title">PROFIL DE COURSE</div>', unsafe_allow_html=True)
@@ -673,6 +855,8 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
         headers = ['KM', 'ALLURE', 'GAP', 'D+', 'D-']
         if has_hr_sp:  headers.append('FC')
         if has_cad_sp: headers.append('CAD')
+        has_walk_sp = any(s.get('has_walk') for s in splits)
+        if has_walk_sp: headers.append('🚶')
 
         header_row  = ''.join(f'<th>{h}</th>' for h in headers)
         rows_html   = ''
@@ -700,6 +884,9 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                 # v3.1 : zone optimale en SPM total
                 cad_color = '#41C8E8' if sp['cadence'] and 170 <= sp['cadence'] <= 200 else '#C8D4DC'
                 row += f'<td style="color:{cad_color}">{sp["cadence"] or "--"}</td>'
+            if has_walk_sp:
+                walk_flag = '🚶' if sp.get('has_walk') else ''
+                row += f'<td style="color:#C8A84B;text-align:center">{walk_flag}</td>'
             rows_html += f'<tr>{row}</tr>'
 
         st.markdown(f"""
@@ -742,7 +929,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
             with st.spinner("Génération du rapport..."):
                 pdf_bytes = generate_pdf(
                     info, fi, flat_v, profile, grade_df,
-                    zones, drift, cad_an, splits, recs, fcmax,
+                    zones, drift, cad_an, splits, recs, fcmax, perf,
                     st.session_state.get("email_input", "")
                 )
             fname = f"VERTEX_{info['name'].replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
