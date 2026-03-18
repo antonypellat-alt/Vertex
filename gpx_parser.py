@@ -154,7 +154,7 @@ def extract_race_info(df: pd.DataFrame, filename: str) -> dict:
     cad_mean = df.loc[df['cadence'] > 80, 'cadence'].mean() if has_cad else None
 
     return {
-        'name': filename.replace('.gpx', '').replace('_', ' ').title(),
+        'name': filename.replace('.gpx', '').replace('.tcx', '').replace('_', ' ').title(),
         'distance_km': total_dist / 1000,
         'total_time_s': total_time,
         'elevation_gain': elevation_gain,
