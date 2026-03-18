@@ -324,13 +324,13 @@ def render_landing():
         st.markdown("<br>", unsafe_allow_html=True)
 
         uploaded = st.file_uploader(
-            "IMPORTER UN FICHIER GPX",
-            type=["gpx"],
-            help="Garmin Connect → Exporter l'original (avec FC et cadence)",
+            "IMPORTER UN FICHIER GPX / TCX",
+            type=["gpx", "tcx"],
+            help="Garmin Connect → Exporter l'original · Polar → Export TCX",
             label_visibility="visible",
         )
         if uploaded:
-            st.session_state['gpx_bytes_pending'] = uploaded.read()
+            st.session_state['gpx_bytes']    = uploaded.read()
             st.session_state['gpx_filename'] = uploaded.name
 
         if st.session_state.get('gpx_bytes_pending'):
@@ -368,17 +368,23 @@ def render_landing():
 # ══════════════════════════════════════════════════════════════════
 
 def render_dashboard(gpx_bytes: bytes, filename: str):
-    with st.spinner("Analyse du fichier GPX..."):
+    ext = filename.lower().split('.')[-1]
+    spinner_label = "Analyse du fichier TCX..." if ext == 'tcx' else "Analyse du fichier GPX..."
+    with st.spinner(spinner_label):
         try:
-            df = parse_gpx(gpx_bytes)
+            if ext == 'tcx':
+                from tcx_parser import parse_tcx
+                df = parse_tcx(gpx_bytes)
+            else:
+                df = parse_gpx(gpx_bytes)
         except ValueError as e:
-            st.error(f"Erreur de lecture GPX : {e}")
+            st.error(f"Erreur de lecture ({ext.upper()}) : {e}")
             if st.button("↺ Recommencer"):
                 for k in ['gpx_bytes', 'gpx_filename']:
                     st.session_state.pop(k, None)
                 st.rerun()
             return
-
+          
     info     = extract_race_info(df, filename)
     fi       = fatigue_index(df)
     flat_v   = flat_pace_estimate(df)
