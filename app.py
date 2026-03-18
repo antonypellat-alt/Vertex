@@ -330,8 +330,9 @@ def render_landing():
             label_visibility="visible",
         )
         if uploaded:
-            st.session_state['gpx_bytes']    = uploaded.read()
-            st.session_state['gpx_filename'] = uploaded.name
+          st.session_state['gpx_bytes_pending'] = uploaded.read()
+          st.session_state['gpx_filename']      = uploaded.name
+          st.rerun()
 
         if st.session_state.get('gpx_bytes_pending'):
             st.markdown("<br>", unsafe_allow_html=True)
