@@ -332,17 +332,40 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
 
     # Section score global — Sprint 2 ⑧
     if perf:
+        # VERDICT
+        import math as _math
+        _dr = fi.get('decay_ratio', float('nan'))
+        _dp = fi.get('decay_pct', float('nan'))
+        if _math.isnan(_dr):
+            _vlabel = 'DONNEES INSUFFISANTES'
+            _vcolor = (42, 64, 80)
+        elif _dr >= 0.93:
+            _vlabel, _vcolor = 'SOLIDE', (65, 200, 232)
+        elif _dr >= 0.85:
+            _vlabel, _vcolor = 'ACCEPTABLE', (200, 168, 75)
+        else:
+            _vlabel, _vcolor = 'DECROCHE', (200, 72, 80)
+
+        section("VERDICT")
+        pdf.set_font("Helvetica", "B", 20)
+        pdf.set_text_color(*_vcolor)
+        pdf.cell(0, 10, clean(_vlabel), ln=True)
+        if not _math.isnan(_dr):
+            _drift_ctx = drift.get('pattern')
+            _cp = drift.get('collapse_pct') or 0
+            _dp_val = drift.get('drift_pct')
+            _insuf = drift.get('insufficient_data', False)
+            sub = f"Q4/Q1 : {_dr:.3f}  |  Perte GAP : {_dp:.1f}%"
+            if _drift_ctx == 'COLLAPSE':
+                sub += f"  |  EFFONDREMENT FC : {abs(_cp):.1f}%"
+            elif not _insuf and _dp_val is not None:
+                sub += f"  |  Derive EF : {_dp_val:.1f}%"
+            pdf.set_font("Helvetica", "", 8)
+            pdf.set_text_color(74, 96, 112)
+            pdf.cell(0, 5, clean(sub), ln=True)
+        pdf.ln(2)
+
         section("SCORE VERTEX")
-        score_color = (65,200,232) if perf['score'] >= 80 else (200,168,75) if perf['score'] >= 60 else (200,72,80)
-        kpi("Score global :", str(perf['score']) + " / 100", color=score_color)
-        kpi("  GAP Q4/Q1 :", f"{perf['score_gap']} / 100  (poids {int(perf['weights']['gap']*100)}%)")
-        ef_str = f"{perf['score_ef']} / 100  (poids {int(perf['weights']['ef']*100)}%)" if perf['score_ef'] is not None else "N/A"
-        kpi("  Dérive EF :", ef_str)
-        kpi("  Régularité :", f"{perf['score_var']} / 100  (poids {int(perf['weights']['var']*100)}%)")
-        if perf['partial'] and perf['partial_reason']:
-            pdf.set_font("Helvetica", "", 7)
-            pdf.set_text_color(200, 168, 75)
-            pdf.cell(0, 5, clean(f"⚠ {perf['partial_reason']}"), ln=True)
 
     if zones:
         section("ZONES DE FREQUENCE CARDIAQUE")
