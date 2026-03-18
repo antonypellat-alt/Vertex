@@ -1,6 +1,3 @@
-# © 2025 VERTEX Performance Intelligence — All rights reserved.
-# Licensed under BSL 1.1. Commercial use requires explicit authorization.
-# Contact: antony.pellat@gmail.com
 """
 ╔══════════════════════════════════════════════════════════════════╗
 ║         VERTEX — GPX Performance Analyzer  |  app.py            ║
@@ -223,7 +220,7 @@ st.markdown(CSS, unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════
-# 1 — GPX PARSER (v3.4)
+# 1 — GPX PARSER (v3.3 : vectorisation + multi-segments + cache)
 # ══════════════════════════════════════════════════════════════════
 
 def haversine_vec(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
@@ -252,6 +249,7 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
     else:
         ns = {'g': 'http://www.topografix.com/GPX/1/1'}
 
+    # FIX v3.3 : collecte tous les segments <trkseg> au lieu du premier uniquement
     trkpts = root.findall('.//g:trkpt', ns)
     if not trkpts:
         trkpts = root.findall('.//trkpt')
@@ -293,6 +291,10 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
                 try:
                     v = int(cad_el.text)
                     if v > 30:
+                        # FIX v3.1 : Garmin stocke la cadence unilatérale (une jambe)
+                        # dans les extensions GPX. On multiplie par 2 pour obtenir
+                        # les pas/min totaux (SPM), sauf si la valeur est déjà > 110
+                        # (certains appareils exportent directement en SPM total).
                         cad = v * 2 if v < 110 else v
                 except Exception:
                     pass
@@ -302,6 +304,7 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
 
+    # FIX v3.3 : Haversine vectorisée — ×20 plus rapide sur GPX longs
     dist_increments = haversine_vec(df['lat'].to_numpy(), df['lon'].to_numpy())
     df['distance'] = np.cumsum(dist_increments)
 
@@ -310,6 +313,7 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
         df['time_s'] = df['time'].apply(
             lambda t: (t - t0).total_seconds() if pd.notna(t) else None
         )
+        # FIX v3.3 : gap_flag — marque les segments interpolés > 30s
         df['gap_flag'] = False
         time_diff = df['time_s'].diff()
         df.loc[time_diff > 30, 'gap_flag'] = True
@@ -323,6 +327,8 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
     df['velocity_raw'] = (df['dd'] / df['dt']).clip(0, 12)
     df['velocity'] = df['velocity_raw'].rolling(7, center=True, min_periods=1).mean()
 
+    # FIX v3.3 : Savitzky-Golay sur l'élévation avant calcul du grade
+    # → élimine le bruit GPS haute fréquence, stabilise le GAP Minetti
     ele_values = df['elevation'].to_numpy()
     window = min(31, len(ele_values) if len(ele_values) % 2 != 0 else len(ele_values) - 1)
     window = max(window, 5)
@@ -354,6 +360,7 @@ def extract_race_info(df: pd.DataFrame, filename: str) -> dict:
     avg_velocity = df[df['velocity'] > 0.3]['velocity'].mean()
 
     has_hr  = df['hr'].notna().sum() > len(df) * 0.3
+    # FIX v3.1 : seuil filtre cadence relevé à 80 (post-multiplication ×2)
     has_cad = df['cadence'].notna().sum() > len(df) * 0.3
 
     hr_mean  = df.loc[df['hr'] > 50, 'hr'].mean() if has_hr else None
@@ -397,18 +404,16 @@ def gap_correction_vec(velocity: np.ndarray, grade_pct: np.ndarray) -> np.ndarra
     correction = np.clip(energy_slope / 3.6, 0.5, 2.5)
     return np.where(correction > 0, velocity / correction, velocity)
 
-
 def v_to_pace(v: float) -> str:
     if not v or v <= 0.1: return "--:--"
     s = 1000 / v
     return f"{int(s//60)}:{int(s%60):02d}"
 
-
 def grade_pace_profile(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df['grade_abs'] = df['grade'].abs()
     bins   = [0, 5, 10, 15, 100]
-    labels = ["0-5%", "5-10%", "10-15%", ">15%"]
+    labels = ["0–5%", "5–10%", "10–15%", ">15%"]
     df['bin'] = pd.cut(df['grade_abs'], bins=bins, labels=labels, right=False)
     profile = (
         df[df['velocity'] > 0.3]
@@ -419,9 +424,9 @@ def grade_pace_profile(df: pd.DataFrame) -> pd.DataFrame:
     profile.columns = ['Tranche pente', 'Vitesse (m/s)', 'Allure (min/km)']
     return profile
 
-
 def fatigue_index(df: pd.DataFrame) -> dict:
     df = df.copy()
+    # FIX v3.3 : vectorisé numpy — remplace df.apply
     df['gap'] = gap_correction_vec(df['velocity'].to_numpy(), df['grade'].to_numpy())
     total = df['time_s'].max()
     q_size = total / 4
@@ -436,14 +441,13 @@ def fatigue_index(df: pd.DataFrame) -> dict:
     return {'quartiles': quartiles, 'decay_ratio': ratio,
             'decay_pct': (1 - ratio)*100 if not math.isnan(ratio) else float('nan')}
 
-
 def flat_pace_estimate(df: pd.DataFrame) -> float:
     flat_mask = (df['grade'].abs() < 3) & (df['velocity'] > 0.3)
     fdf = df[flat_mask]
     if len(fdf) < 10:
         return df[df['velocity'] > 0.3]['velocity'].median()
+    # FIX v3.3 : vectorisé numpy
     return float(np.median(gap_correction_vec(fdf['velocity'].to_numpy(), fdf['grade'].to_numpy())))
-
 
 def classify_profile(decay_ratio: float, flat_v: float) -> str:
     if math.isnan(decay_ratio): return "PROFIL INCONNU"
@@ -462,21 +466,23 @@ ZONE_NAMES = {
     'Z5': 'VO2max / Anaérobie',
 }
 
-
 def compute_hr_zones(df: pd.DataFrame, fcmax: int, custom_zones: dict = None) -> dict:
     valid = df[df['hr'] > 50].copy()
     valid['dt'] = valid['time_s'].diff().fillna(0).clip(0, 30)
 
+    # Mode manuel : zones en bpm absolus fournis par l'utilisateur
     if custom_zones:
         zone_bpm = {z: (int(v[0]), int(v[1])) for z, v in custom_zones.items()}
         bins  = [zone_bpm[z][0] for z in ['Z1','Z2','Z3','Z4','Z5']] + [zone_bpm['Z5'][1] + 1]
         labels = ['Z1','Z2','Z3','Z4','Z5']
+        # FIX v3.3 : vectorisé — pd.cut + groupby remplace iterrows
         valid['zone'] = pd.cut(valid['hr'], bins=bins, labels=labels, right=False)
         zone_time = valid.groupby('zone', observed=True)['dt'].sum().reindex(labels, fill_value=0).to_dict()
         total = sum(zone_time.values())
         zone_pct = {z: (t/total*100 if total > 0 else 0) for z, t in zone_time.items()}
         return {'time': zone_time, 'pct': zone_pct, 'bpm': zone_bpm, 'fcmax': fcmax, 'mode': 'manual'}
 
+    # Mode auto : % FCmax (défaut)
     thresholds = {
         'Z1': (0,    0.60),
         'Z2': (0.60, 0.70),
@@ -485,8 +491,9 @@ def compute_hr_zones(df: pd.DataFrame, fcmax: int, custom_zones: dict = None) ->
         'Z5': (0.90, 1.01),
     }
     zone_bpm  = {z: (int(lo*fcmax), int(hi*fcmax)) for z, (lo, hi) in thresholds.items()}
-    bins = [lo * fcmax for lo, _ in thresholds.values()] + [250]
+    bins = [lo * fcmax for lo, _ in thresholds.values()] + [250]  # 250 bpm = plafond absolu
     labels    = ['Z1','Z2','Z3','Z4','Z5']
+    # FIX v3.3 : vectorisé — pd.cut + groupby remplace iterrows
     valid['zone'] = pd.cut(valid['hr'], bins=bins, labels=labels, right=False)
     zone_time = valid.groupby('zone', observed=True)['dt'].sum().reindex(labels, fill_value=0).to_dict()
     total     = sum(zone_time.values())
@@ -497,37 +504,117 @@ def compute_hr_zones(df: pd.DataFrame, fcmax: int, custom_zones: dict = None) ->
 # ── Découplage cardiaque ────────────────────────────────────────
 
 def cardiac_drift(df: pd.DataFrame) -> dict:
+    """
+    v3.4 — Détection 3 patterns : STABLE / DRIFT / COLLAPSE
+    COLLAPSE = FC qui s'effondre en fin de course (cardiac drift inversé)
+    Sprint 2 item ⑤ : seuil minimum 10 min terrain plat
+    Sprint 2 item ⑥ : CDC Elena v1.0 — régression linéaire FC + fc_delta Q1/Q4
+    """
+    _empty = {
+        'ef1': None, 'ef2': None, 'drift_pct': None, 'quartiles': {},
+        'pattern': None, 'collapse_pct': None, 'fc_slope_bph': None,
+        'fc_q1_mean': None, 'fc_q4_mean': None, 'insufficient_data': True,
+    }
+
     flat = df[
         (df['grade'].abs() < 3) &
         (df['velocity'] > 0.3) &
-        (df['hr'] > 80) &
-        (df['velocity'].notna()) &
-        (df['hr'].notna())
+        (df['hr'] > 80)
     ].copy()
+
+    # Garde-fou points minimum
     if len(flat) < 20:
-        return {'ef1': None, 'ef2': None, 'drift_pct': None, 'quartiles': {}}
+        return _empty
 
     flat = flat.sort_values('distance').reset_index(drop=True)
+
+    # ── Item ⑤ : seuil minimum 10 min de terrain plat ──────────
+    flat_duration_min = (flat['time_s'].max() - flat['time_s'].min()) / 60
+    if flat_duration_min < 10:
+        return _empty
+
+    # ── EF par demi-course (rétrocompat) ────────────────────────
     mid = len(flat) // 2
 
     def ef(sub):
         if len(sub) == 0: return None
-        v  = sub['velocity'].dropna().mean()
-        hr = sub['hr'].dropna().mean()
-        return (v / hr) * 100 if hr and hr > 0 else None
+        v  = sub['velocity'].mean()
+        hr = sub['hr'].mean()
+        return (v / hr) * 100 if hr > 0 else None
 
     ef1 = ef(flat.iloc[:mid])
     ef2 = ef(flat.iloc[mid:])
-    drift = ((ef2 - ef1) / ef1 * 100) if (ef1 and ef2 and ef1 > 0) else None
+    drift_ef = ((ef2 - ef1) / ef1 * 100) if (ef1 and ef2 and ef1 > 0) else None
 
+    # ── EF par quartile de distance totale ───────────────────────
     total_dist = df['distance'].iloc[-1]
     q_size = total_dist / 4
     ef_q = {}
     for i in range(1, 5):
-        q = flat[(flat['distance'] >= (i-1)*q_size) & (flat['distance'] < i*q_size)]
+        q = flat[
+            (flat['distance'] >= (i-1)*q_size) &
+            (flat['distance'] < i*q_size)
+        ]
         ef_q[f'Q{i}'] = ef(q)
 
-    return {'ef1': ef1, 'ef2': ef2, 'drift_pct': drift, 'quartiles': ef_q}
+    # ── FC moyenne par quartile sur plat ────────────────────────
+    def fc_mean(sub):
+        v = sub['hr'].dropna()
+        return float(v.mean()) if len(v) > 3 else None
+
+    fc_q = {}
+    for i in range(1, 5):
+        q = flat[
+            (flat['distance'] >= (i-1)*q_size) &
+            (flat['distance'] < i*q_size)
+        ]
+        fc_q[f'Q{i}'] = fc_mean(q)
+
+    fc_q1_mean = fc_q.get('Q1')
+    fc_q4_mean = fc_q.get('Q4')
+
+    # ── Régression linéaire FC/temps → pente bpm/heure ──────────
+    t_arr  = flat['time_s'].to_numpy()
+    hr_arr = flat['hr'].to_numpy()
+    if len(t_arr) > 10:
+        coeffs = np.polyfit(t_arr, hr_arr, 1)
+        fc_slope_bph = float(coeffs[0]) * 3600  # bpm/heure
+    else:
+        fc_slope_bph = 0.0
+
+    # ── fc_delta_pct Q1 → Q4 ────────────────────────────────────
+    if fc_q1_mean and fc_q4_mean and fc_q1_mean > 0:
+        fc_delta_pct = (fc_q4_mean - fc_q1_mean) / fc_q1_mean * 100
+    else:
+        fc_delta_pct = None
+
+    # ── Classification pattern ───────────────────────────────────
+    # COLLAPSE : FC chute > 10% ET pente régression < -3 bpm/h
+    # DRIFT    : EF se dégrade (drift_pct < -2%) sans COLLAPSE
+    # STABLE   : tout le reste
+    if fc_delta_pct is not None and fc_delta_pct < -10 and fc_slope_bph < -3.0:
+        pattern      = 'COLLAPSE'
+        collapse_pct = fc_delta_pct
+        drift_ef     = None  # EF non interprétable en cas de COLLAPSE
+    elif drift_ef is not None and drift_ef < -2:
+        pattern      = 'DRIFT'
+        collapse_pct = None
+    else:
+        pattern      = 'STABLE'
+        collapse_pct = None
+
+    return {
+        'ef1':              ef1,
+        'ef2':              ef2,
+        'drift_pct':        drift_ef,
+        'quartiles':        ef_q,
+        'pattern':          pattern,
+        'collapse_pct':     collapse_pct,
+        'fc_slope_bph':     fc_slope_bph,
+        'fc_q1_mean':       fc_q1_mean,
+        'fc_q4_mean':       fc_q4_mean,
+        'insufficient_data': False,
+    }
 
 
 # ── Splits par km ───────────────────────────────────────────────
@@ -554,6 +641,7 @@ def compute_km_splits(df: pd.DataFrame) -> list:
         gap_v = gap_correction(v, seg['grade'].mean()) if v else None
 
         hr_mean  = seg.loc[seg['hr'] > 50, 'hr'].mean() if seg['hr'].notna().any() else None
+        # FIX v3.1 : seuil filtre cadence relevé à 80
         cad_mean = seg.loc[seg['cadence'] > 80, 'cadence'].mean() if seg['cadence'].notna().any() else None
 
         splits.append({
@@ -589,17 +677,26 @@ def hr_by_grade(df: pd.DataFrame) -> pd.DataFrame:
 # ── Analyse cadence ─────────────────────────────────────────────
 
 def cadence_analysis(df: pd.DataFrame) -> dict:
-    valid = df[df['cadence'] > 80]['cadence'].dropna()
+    # FIX v3.1 : seuil filtre relevé à 80 (post-multiplication ×2)
+    valid = df[df['cadence'] > 80]['cadence']
     if len(valid) < 10:
         return {'mean': None, 'max': None, 'dist': {}, 'optimal_pct': None}
 
-    bin_edges  = [0, 150, 160, 170, 180, 190, 200, 999]
-    bin_labels = ['<150', '150-160', '160-170', '170-180', '180-190', '190-200', '>200']
-    cuts = pd.cut(valid, bins=bin_edges, labels=bin_labels, right=False)
-    counts = cuts.value_counts().reindex(bin_labels, fill_value=0)
-    total = len(valid)
-    pct = (counts / total * 100).to_dict()
+    # FIX v3.1 : bins recalculés pour des valeurs post-×2 (150–210 ppm réaliste trail)
+    bins = {'<150': 0, '150-160': 0, '160-170': 0, '170-180': 0,
+            '180-190': 0, '190-200': 0, '>200': 0}
+    for c in valid:
+        if c < 150:     bins['<150'] += 1
+        elif c < 160:   bins['150-160'] += 1
+        elif c < 170:   bins['160-170'] += 1
+        elif c < 180:   bins['170-180'] += 1
+        elif c < 190:   bins['180-190'] += 1
+        elif c <= 200:  bins['190-200'] += 1
+        else:           bins['>200'] += 1
 
+    total = len(valid)
+    pct = {k: v/total*100 for k, v in bins.items()}
+    # Zone optimale trail : 170-190 ppm (équivalent 85-95 ppm unilatéral Garmin)
     optimal_pct = pct.get('170-180', 0) + pct.get('180-190', 0) + pct.get('190-200', 0)
 
     return {
@@ -611,7 +708,7 @@ def cadence_analysis(df: pd.DataFrame) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════
-# 3 — RECOMMANDATIONS COACH (v3.4)
+# 3 — RECOMMANDATIONS COACH (v3.1)
 # ══════════════════════════════════════════════════════════════════
 
 def generate_coach_recommendations(
@@ -625,10 +722,16 @@ def generate_coach_recommendations(
     recs = []
     dr = fi.get('decay_ratio', float('nan'))
     dp = fi.get('decay_pct', float('nan'))
-    drift_pct = drift.get('drift_pct')
-    cad_mean = cad_analysis.get('mean')
+
+    # ── Extraction pattern cardiac_drift v3.4 ───────────────────
+    drift_pattern   = drift.get('pattern')
+    drift_pct       = drift.get('drift_pct')
+    collapse_pct    = drift.get('collapse_pct')
+    insufficient    = drift.get('insufficient_data', False)
+
+    cad_mean    = cad_analysis.get('mean')
     optimal_pct = cad_analysis.get('optimal_pct', 0)
-    hr_mean = info.get('hr_mean')
+    hr_mean     = info.get('hr_mean')
 
     if hr_mean and fcmax:
         hr_pct = hr_mean / fcmax * 100
@@ -650,7 +753,29 @@ def generate_coach_recommendations(
                         "20% en Z4/Z5. Une FC si haute en moyenne sur un ultra suggère un manque de volume aérobie de base."
             })
 
-    if drift_pct is not None:
+    # ── Découplage cardiaque — 3 patterns ───────────────────────
+    if insufficient:
+        pass  # pas de recommandation FC sans données plat suffisantes
+
+    elif drift_pattern == 'COLLAPSE':
+        fc_q1 = drift.get('fc_q1_mean') or 0
+        fc_q4 = drift.get('fc_q4_mean') or 0
+        recs.append({
+            'level': 'crit',
+            'title': 'Effondrement cardiovasculaire détecté',
+            'body': (
+                f"La FC s'est effondrée de {abs(collapse_pct):.1f}% sur terrain plat "
+                f"(FC Q1 : {fc_q1:.0f} → FC Q4 : {fc_q4:.0f} bpm). "
+                "Ce pattern 'cardiac collapse' invalide l'EF en fin de course — "
+                "l'efficacité apparente est trompeuse. "
+                "Causes probables : hypoglycémie sévère, déshydratation, "
+                "ou décrochage du système nerveux autonome. "
+                "Priorité absolue : revoir la stratégie nutritionnelle (glucides/heure) "
+                "et le protocole hydratation. Minimum 10 jours de récupération complète."
+            )
+        })
+
+    elif drift_pattern == 'DRIFT' and drift_pct is not None:
         if drift_pct < -5:
             recs.append({
                 'level': 'warn',
@@ -660,14 +785,23 @@ def generate_coach_recommendations(
                         "Axe de travail : sorties longues >3h en Z2 strict + stratégie nutritionnelle "
                         "(1 gel ou 30-40g glucides/30min après 1h d'effort)."
             })
-        elif drift_pct > -2:
+        else:
             recs.append({
-                'level': 'info',
-                'title': f'Très bon découplage cardiaque : {drift_pct:.1f}%',
-                'body': "L'efficacité de course est quasi-constante sur l'ensemble de l'effort. "
-                        "Ton endurance aérobie est solide. Pour continuer à progresser : "
-                        "introduis 1 séance/semaine de travail spécifique au seuil (2×20min à FC seuil)."
+                'level': 'warn',
+                'title': f'Découplage cardiaque modéré : {drift_pct:.1f}%',
+                'body': f"Légère dégradation de l'EF de {abs(drift_pct):.1f}%. "
+                        "Axe de travail : sorties longues >3h en Z2 strict + stratégie nutritionnelle "
+                        "(1 gel ou 30-40g glucides/30min après 1h d'effort)."
             })
+
+    elif drift_pattern == 'STABLE' and drift_pct is not None:
+        recs.append({
+            'level': 'info',
+            'title': f'Très bon découplage cardiaque : {drift_pct:.1f}%',
+            'body': "L'efficacité de course est quasi-constante sur l'ensemble de l'effort. "
+                    "Ton endurance aérobie est solide. Pour continuer à progresser : "
+                    "introduis 1 séance/semaine de travail spécifique au seuil (2×20min à FC seuil)."
+        })
 
     if not math.isnan(dp):
         if dp > 15:
@@ -699,6 +833,7 @@ def generate_coach_recommendations(
             })
 
     if cad_mean:
+        # FIX v3.1 : seuils cadence recalculés en SPM total (×2)
         if cad_mean < 168:
             recs.append({
                 'level': 'warn',
@@ -875,7 +1010,7 @@ def chart_quartiles(quartiles: dict) -> go.Figure:
 
 def chart_grade_dist(df: pd.DataFrame) -> go.Figure:
     bins   = [0, 5, 10, 15, 100]
-    labels = ["0-5%", "5-10%", "10-15%", ">15%"]
+    labels = ["0–5%", "5–10%", "10–15%", ">15%"]
     df2 = df.copy()
     df2['grade_abs'] = df2['grade'].abs()
     df2['bin'] = pd.cut(df2['grade_abs'], bins=bins, labels=labels, right=False)
@@ -893,6 +1028,7 @@ def chart_grade_dist(df: pd.DataFrame) -> go.Figure:
 
 def chart_gap_profile(df: pd.DataFrame) -> go.Figure:
     df2 = df.copy()
+    # FIX v3.3 : vectorisé numpy
     df2['gap'] = gap_correction_vec(df2['velocity'].to_numpy(), df2['grade'].to_numpy())
     dist_km = df2['distance'] / 1000
     fig = go.Figure()
@@ -918,11 +1054,13 @@ def chart_gap_profile(df: pd.DataFrame) -> go.Figure:
 def chart_cadence(df: pd.DataFrame) -> go.Figure:
     dist_km = df['distance'] / 1000
     fig = go.Figure()
+    # FIX v3.1 : zones optimales recalculées en SPM total
     fig.add_hrect(y0=170, y1=200, fillcolor='rgba(65,200,232,0.05)', line_width=0)
     fig.add_trace(go.Scatter(
         x=dist_km, y=df['cadence'],
         mode='lines', line=dict(color='#41C8E8', width=1.2), name='Cadence'
     ))
+    # Ligne de référence à 180 spm (standard running optimal)
     fig.add_hline(y=180, line_dash='dot', line_color='rgba(65,200,232,0.3)', line_width=1)
     fig.update_layout(**_layout(
         height=180,
@@ -967,17 +1105,17 @@ def chart_ef_quartiles(ef_q: dict) -> go.Figure:
 
 
 # ══════════════════════════════════════════════════════════════════
-# 5 — PDF GENERATOR (v3.4 — DejaVu Unicode, clean() supprimé)
+# 5 — PDF GENERATOR (v3.1)
 # ══════════════════════════════════════════════════════════════════
+
+def clean(text: str) -> str:
+    text = unicodedata.normalize("NFKD", str(text))
+    return text.encode("latin-1", errors="ignore").decode("latin-1")
 
 def generate_pdf(info, fi, flat_v, profile, grade_df,
                  zones, drift, cad_analysis, splits, recs,
                  fcmax, email="") -> bytes:
     pdf = FPDF()
-    # FIX v3.4 : polices DejaVu Unicode — accents natifs, clean() inutile
-    pdf.add_font("DejaVu", "",  "DejaVuSans.ttf")
-    pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf")
-    pdf.add_font("DejaVu", "I", "DejaVuSans-Oblique.ttf")
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
@@ -993,32 +1131,32 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
 
     def section(title):
         sep()
-        pdf.set_font("DejaVu", "", 7)
+        pdf.set_font("Courier", "", 7)
         pdf.set_text_color(42, 64, 80)
-        pdf.cell(0, 5, f"-- {title} --", ln=True)
+        pdf.cell(0, 5, clean(f"-- {title} --"), ln=True)
         pdf.ln(2)
 
     def kpi(label, value, color=(65, 200, 232)):
-        pdf.set_font("DejaVu", "", 8)
+        pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(42, 64, 80)
-        pdf.cell(75, 6, label, border=0)
-        pdf.set_font("DejaVu", "B", 10)
+        pdf.cell(75, 6, clean(label), border=0)
+        pdf.set_font("Helvetica", "B", 10)
         pdf.set_text_color(*color)
-        pdf.cell(0, 6, value, ln=True)
+        pdf.cell(0, 6, clean(value), ln=True)
 
     bg()
 
-    pdf.set_font("DejaVu", "B", 32)
+    pdf.set_font("Helvetica", "B", 32)
     pdf.set_text_color(65, 200, 232)
-    pdf.cell(0, 14, "VERTEX", ln=True, align="C")
-    pdf.set_font("DejaVu", "", 8)
+    pdf.cell(0, 14, clean("VERTEX"), ln=True, align="C")
+    pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(42, 64, 80)
-    pdf.cell(0, 5, "PERFORMANCE INTELLIGENCE  |  RACE ANALYSIS v3.4", ln=True, align="C")
+    pdf.cell(0, 5, clean("PERFORMANCE INTELLIGENCE  |  RACE ANALYSIS v3.1"), ln=True, align="C")
     pdf.set_text_color(100, 130, 150)
-    pdf.cell(0, 5, f"{info['name']}  ·  {datetime.now().strftime('%d/%m/%Y')}", ln=True, align="C")
+    pdf.cell(0, 5, clean(f"{info['name']}  ·  {datetime.now().strftime('%d/%m/%Y')}"), ln=True, align="C")
     pdf.ln(4)
 
-    section("MÉTRIQUES DE COURSE")
+    section("METRIQUES DE COURSE")
     dist_km = info['distance_km']
     total_s = info['total_time_s']
     h, m, s = int(total_s//3600), int((total_s%3600)//60), int(total_s%60)
@@ -1030,25 +1168,25 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     kpi("Altitude max :", f"{int(info['max_elevation'])} m")
     if info.get('hr_mean'):
         kpi("FC moyenne :", f"{int(info['hr_mean'])} bpm")
-        kpi("FC max observée :", f"{int(info['hr_max'])} bpm")
+        kpi("FC max observee :", f"{int(info['hr_max'])} bpm")
     if info.get('cad_mean'):
         kpi("Cadence moyenne :", f"{int(info['cad_mean'])} spm")
     kpi("Classification :", profile)
 
     if zones:
-        section("ZONES DE FRÉQUENCE CARDIAQUE")
+        section("ZONES DE FREQUENCE CARDIAQUE")
         for z in ['Z1','Z2','Z3','Z4','Z5']:
             bpm = zones['bpm'].get(z, (0,0))
             pct = zones['pct'].get(z, 0)
             t   = zones['time'].get(z, 0)
             mm  = int(t//60)
-            pdf.set_font("DejaVu", "", 8)
+            pdf.set_font("Helvetica", "", 8)
             pdf.set_text_color(42, 64, 80)
-            pdf.cell(18, 5, f"{z} :", border=0)
+            pdf.cell(18, 5, clean(f"{z} :"), border=0)
             pdf.set_text_color(100, 130, 150)
-            pdf.cell(45, 5, f"{bpm[0]}-{bpm[1]} bpm", border=0)
+            pdf.cell(45, 5, clean(f"{bpm[0]}-{bpm[1]} bpm"), border=0)
             pdf.set_text_color(65, 200, 232)
-            pdf.cell(0, 5, f"{mm} min  ({pct:.0f}%)", ln=True)
+            pdf.cell(0, 5, clean(f"{mm} min  ({pct:.0f}%)"), ln=True)
 
     section("ANALYSE DE FATIGUE GAP")
     dr = fi['decay_ratio']
@@ -1057,89 +1195,78 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     kpi("Perte de vitesse :", f"{dp:.1f}%" if not math.isnan(dp) else "N/A")
     for q, v in fi['quartiles'].items():
         val = f"{v:.3f} m/s  ({v_to_pace(v)} /km)" if not math.isnan(v) else "N/A"
-        pdf.set_font("DejaVu", "", 8)
-        pdf.set_text_color(42, 64, 80)
-        pdf.cell(30, 5, q + " :", border=0)
+        pdf.set_font("Helvetica", "", 8); pdf.set_text_color(42, 64, 80)
+        pdf.cell(30, 5, clean(q + " :"), border=0)
         pdf.set_text_color(100, 130, 150)
-        pdf.cell(0, 5, val, ln=True)
+        pdf.cell(0, 5, clean(val), ln=True)
 
     if drift.get('drift_pct') is not None:
-        section("DÉCOUPLAGE CARDIAQUE")
-        kpi("EF 1ère moitié (plat) :", f"{drift['ef1']:.3f}" if drift['ef1'] else "N/A")
-        kpi("EF 2ème moitié (plat) :", f"{drift['ef2']:.3f}" if drift['ef2'] else "N/A")
+        section("DECOUPLAGE CARDIAQUE")
+        kpi("EF 1ere moitie (plat) :", f"{drift['ef1']:.3f}" if drift['ef1'] else "N/A")
+        kpi("EF 2eme moitie (plat) :", f"{drift['ef2']:.3f}" if drift['ef2'] else "N/A")
         drift_val = drift['drift_pct']
         color = (200, 72, 80) if drift_val < -5 else (200, 168, 75) if drift_val < -2 else (65, 200, 232)
-        kpi("Dérive EF :", f"{drift_val:.1f}%", color=color)
+        kpi("Derive EF :", f"{drift_val:.1f}%", color=color)
 
     section("PROFIL PENTE")
     for _, row in grade_df.iterrows():
-        pdf.set_font("DejaVu", "", 8)
-        pdf.set_text_color(42, 64, 80)
-        pdf.cell(40, 5, str(row['Tranche pente']) + " :", border=0)
+        pdf.set_font("Helvetica", "", 8); pdf.set_text_color(42, 64, 80)
+        pdf.cell(40, 5, clean(str(row['Tranche pente']) + " :"), border=0)
         pdf.set_text_color(100, 130, 150)
-        pdf.cell(0, 5, f"{row['Allure (min/km)']} /km", ln=True)
+        pdf.cell(0, 5, clean(f"{row['Allure (min/km)']} /km"), ln=True)
 
     if cad_analysis.get('mean'):
         section("ANALYSE CADENCE")
         kpi("Cadence moyenne :", f"{cad_analysis['mean']:.0f} spm")
-        kpi("Zone optimale (170-200 spm) :", f"{cad_analysis['optimal_pct']:.0f}% du temps")
+        kpi("Zone optimale (170-200spm) :", f"{cad_analysis['optimal_pct']:.0f}% du temps")
         for k, v in cad_analysis['dist'].items():
             if v > 1:
-                pdf.set_font("DejaVu", "", 8)
-                pdf.set_text_color(42, 64, 80)
-                pdf.cell(40, 5, k + " spm :", border=0)
+                pdf.set_font("Helvetica", "", 8); pdf.set_text_color(42, 64, 80)
+                pdf.cell(40, 5, clean(k + " spm :"), border=0)
                 pdf.set_text_color(100, 130, 150)
-                pdf.cell(0, 5, f"{v:.0f}%", ln=True)
+                pdf.cell(0, 5, clean(f"{v:.0f}%"), ln=True)
 
     if splits:
-        section("SPLITS PAR KM (résumé)")
-        pdf.set_font("DejaVu", "B", 7)
+        section("SPLITS PAR KM (resume)")
+        pdf.set_font("Helvetica", "B", 7)
         pdf.set_text_color(42, 64, 80)
         cols = ["Km", "Allure", "GAP", "D+", "FC", "Cad"]
         widths = [12, 22, 22, 15, 18, 18]
         for col, w in zip(cols, widths):
-            pdf.cell(w, 5, col, border=0)
+            pdf.cell(w, 5, clean(col), border=0)
         pdf.ln()
-        pdf.set_font("DejaVu", "", 7)
+        pdf.set_font("Helvetica", "", 7)
         for sp in splits[::2]:
             pdf.set_text_color(100, 130, 150)
-            pdf.cell(12, 4, str(sp['km']), border=0)
-            pdf.cell(22, 4, sp['pace'], border=0)
-            pdf.cell(22, 4, sp['gap'], border=0)
-            pdf.cell(15, 4, f"+{sp['d_pos']}m", border=0)
-            pdf.cell(18, 4, str(sp['hr']) if sp['hr'] else "--", border=0)
-            pdf.cell(18, 4, str(sp['cadence']) if sp['cadence'] else "--", border=0)
+            pdf.cell(12, 4, clean(str(sp['km'])), border=0)
+            pdf.cell(22, 4, clean(sp['pace']), border=0)
+            pdf.cell(22, 4, clean(sp['gap']), border=0)
+            pdf.cell(15, 4, clean(f"+{sp['d_pos']}m"), border=0)
+            pdf.cell(18, 4, clean(str(sp['hr']) if sp['hr'] else "--"), border=0)
+            pdf.cell(18, 4, clean(str(sp['cadence']) if sp['cadence'] else "--"), border=0)
             pdf.ln()
 
     section("RECOMMANDATIONS COACH")
     level_colors = {'info': (65,200,232), 'warn': (200,168,75), 'crit': (200,72,80)}
     for i, rec in enumerate(recs, 1):
         color = level_colors.get(rec['level'], (100,130,150))
-        pdf.set_font("DejaVu", "B", 8)
+        pdf.set_font("Helvetica", "B", 8)
         pdf.set_text_color(*color)
-        pdf.cell(8, 5, f"{i}.", border=0)
-        pdf.cell(0, 5, rec['title'], ln=True)
-        pdf.set_font("DejaVu", "", 8)
+        pdf.cell(8, 5, clean(f"{i}."), border=0)
+        pdf.cell(0, 5, clean(rec['title']), ln=True)
+        pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(100, 130, 150)
-        pdf.multi_cell(0, 5, rec['body'])
+        pdf.multi_cell(0, 5, clean(rec['body']))
         pdf.ln(1)
 
     sep()
-    pdf.set_font("DejaVu", "", 6)
+    pdf.set_font("Courier", "", 6)
     pdf.set_text_color(30, 50, 60)
     if email:
-        pdf.cell(0, 4, f"Plans envoyés à : {email}", ln=True, align="C")
+        pdf.cell(0, 4, clean(f"Plans envoyes a : {email}"), ln=True, align="C")
     pdf.cell(0, 4,
-        f"VERTEX v3.4 — GAP Minetti (2002) — FCmax: {fcmax} bpm — {datetime.now().strftime('%d/%m/%Y')}",
+        clean(f"VERTEX v3.3 — GAP Minetti (2002) — FCmax: {fcmax} bpm — {datetime.now().strftime('%d/%m/%Y')}"),
         ln=True, align="C")
-    sep()
-    pdf.set_font("DejaVu", "I", 6)
-    pdf.set_text_color(30, 50, 60)
-    pdf.multi_cell(0, 4,
-        "AVERTISSEMENT : VERTEX est un outil d'analyse sportive à usage informatif uniquement. "
-        "Les données produites ne constituent pas un avis médical. Consultez un professionnel de santé "
-        "pour toute décision relative à votre condition physique. "
-        "© 2025 VERTEX Performance Intelligence — BSL 1.1", align="C")
 
     return bytes(pdf.output())
 
@@ -1152,7 +1279,7 @@ def render_landing():
     st.markdown("<br>", unsafe_allow_html=True)
     col_l, col_c, col_r = st.columns([1, 2, 1])
     with col_c:
-        st.markdown('<div class="hud-label">// SYSTEM ONLINE — v3.4 //</div>', unsafe_allow_html=True)
+        st.markdown('<div class="hud-label">// SYSTEM ONLINE — v3.3 //</div>', unsafe_allow_html=True)
         st.markdown('<div class="vertex-title">VERTEX</div>', unsafe_allow_html=True)
         st.markdown('<div class="vertex-sub">PERFORMANCE INTELLIGENCE</div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1165,6 +1292,7 @@ def render_landing():
         """, unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
 
+        # ── PROFIL ATHLÈTE ──────────────────────────────────────
         st.markdown("""
         <div style="font-family:'DM Mono',monospace;font-size:0.62rem;color:#2A4050;
         letter-spacing:0.22em;text-transform:uppercase;border-bottom:1px solid #152030;
@@ -1203,11 +1331,11 @@ def render_landing():
                 'Z4': (int(fcmax_input * 0.80), int(fcmax_input * 0.90)),
                 'Z5': (int(fcmax_input * 0.90), fcmax_input),
             })
-            z1_hi = zc1.number_input("Z1 max", min_value=80, max_value=220, value=default_zones['Z1'][1], step=1)
-            z2_hi = zc2.number_input("Z2 max", min_value=80, max_value=220, value=default_zones['Z2'][1], step=1)
-            z3_hi = zc3.number_input("Z3 max", min_value=80, max_value=220, value=default_zones['Z3'][1], step=1)
-            z4_hi = zc4.number_input("Z4 max", min_value=80, max_value=220, value=default_zones['Z4'][1], step=1)
-            z5_hi = zc5.number_input("Z5 max", min_value=80, max_value=220, value=default_zones['Z5'][1], step=1)
+            z1_hi = zc1.number_input("Z1 max", min_value=80,  max_value=220, value=default_zones['Z1'][1], step=1)
+            z2_hi = zc2.number_input("Z2 max", min_value=80,  max_value=220, value=default_zones['Z2'][1], step=1)
+            z3_hi = zc3.number_input("Z3 max", min_value=80,  max_value=220, value=default_zones['Z3'][1], step=1)
+            z4_hi = zc4.number_input("Z4 max", min_value=80,  max_value=220, value=default_zones['Z4'][1], step=1)
+            z5_hi = zc5.number_input("Z5 max", min_value=80,  max_value=220, value=default_zones['Z5'][1], step=1)
             st.session_state['custom_zones'] = {
                 'Z1': (0,    z1_hi),
                 'Z2': (z1_hi, z2_hi),
@@ -1236,10 +1364,10 @@ def render_landing():
     st.markdown("<br><br>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     for col, label, desc in [
-        (c1, "GAP ENGINE",   "Grade-Adjusted Pace · Minetti 2002 · Profil fatigue 4 quartiles"),
-        (c2, "ZONES FC",     "Distribution Z1→Z5 · Découplage cardiaque · EF par segment"),
-        (c3, "CADENCE",      "Distribution · Régularité · Zones optimales · Évolution"),
-        (c4, "COACH REPORT", "6 recommandations personnalisées · Export PDF complet"),
+        (c1, "GAP ENGINE",     "Grade-Adjusted Pace · Minetti 2002 · Profil fatigue 4 quartiles"),
+        (c2, "ZONES FC",       "Distribution Z1→Z5 · Découplage cardiaque · EF par segment"),
+        (c3, "CADENCE",        "Distribution · Régularité · Zones optimales · Évolution"),
+        (c4, "COACH REPORT",   "6 recommandations personnalisées · Export PDF complet"),
     ]:
         with col:
             st.markdown(f"""
@@ -1253,10 +1381,6 @@ def render_landing():
     <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:#1A2A35;text-align:center;letter-spacing:0.1em;">
     EXPORT GPX AVEC FC : Garmin Connect → Activité → ··· → Exporter l'original &nbsp;|&nbsp;
     Strava → utiliser Garmin Connect directement (Strava supprime la FC à l'export GPX)
-    </div>
-    <div style="font-family:'DM Mono',monospace;font-size:0.55rem;color:#1A2A35;text-align:center;letter-spacing:0.08em;margin-top:8px;padding:0 2rem;">
-    VERTEX est un outil d'analyse sportive à usage informatif uniquement. Les données produites ne constituent pas un avis médical.
-    Consultez un professionnel de santé pour toute décision relative à votre condition physique. © 2025 VERTEX Performance Intelligence — BSL 1.1
     </div>
     """, unsafe_allow_html=True)
 
@@ -1281,6 +1405,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     splits   = compute_km_splits(df)
     cad_an   = cadence_analysis(df)
 
+    # Récupération FCmax et zones depuis session_state (saisis sur la landing)
     fcmax = int(st.session_state.get('fcmax', int(info['hr_max']) if info.get('hr_max') else 190))
     zone_mode = st.session_state.get('zone_mode', 'auto')
     custom_zones = st.session_state.get('custom_zones', None)
@@ -1302,7 +1427,11 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
             st.rerun()
 
     zones    = compute_hr_zones(df, fcmax, custom_zones if zone_mode == 'manual' else None) if info['has_hr'] else None
-    drift    = cardiac_drift(df)           if info['has_hr'] else {'ef1':None,'ef2':None,'drift_pct':None,'quartiles':{}}
+    drift    = cardiac_drift(df) if info['has_hr'] else {
+        'ef1': None, 'ef2': None, 'drift_pct': None, 'quartiles': {},
+        'pattern': None, 'collapse_pct': None, 'fc_slope_bph': None,
+        'fc_q1_mean': None, 'fc_q4_mean': None, 'insufficient_data': True,
+    }
     hr_grade = hr_by_grade(df)             if info['has_hr'] else None
     recs     = generate_coach_recommendations(profile, fi, drift, cad_an, info, fcmax)
 
@@ -1310,13 +1439,14 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     col_title, col_badge = st.columns([4, 1])
     with col_title:
         st.markdown(
-            f'<div class="hud-label">// ANALYSE COMPLETE — v3.4 //</div>'
+            f'<div class="hud-label">// ANALYSE COMPLETE — v3.3 //</div>'
             f'<div style="font-family:Barlow Condensed,sans-serif;font-size:1.8rem;'
             f'font-weight:700;letter-spacing:0.15em;color:#ffffff">'
             f'{info["name"].upper()}</div>',
             unsafe_allow_html=True,
         )
 
+    # FIX v3.3 : warning segments GPS manquants
     n_gaps = int(df['gap_flag'].sum()) if 'gap_flag' in df.columns else 0
     if n_gaps > 0:
         st.markdown(f"""
@@ -1356,8 +1486,55 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
         dp = fi['decay_pct']
         c2.metric("RATIO Q4/Q1", f"{dr:.3f}" if not math.isnan(dr) else "N/A")
         c3.metric("PERTE GAP", f"{dp:.1f}%" if not math.isnan(dp) else "N/A")
-        if drift.get('drift_pct') is not None:
-            c4.metric("DÉRIVE EF", f"{drift['drift_pct']:.1f}%")
+        # KPI FC — sensible au pattern v3.4
+        if info['has_hr'] and drift:
+            _pattern      = drift.get('pattern')
+            _insufficient = drift.get('insufficient_data', False)
+            _collapse_pct = drift.get('collapse_pct')
+            _drift_pct    = drift.get('drift_pct')
+            if not _insufficient:
+                if _pattern == 'COLLAPSE':
+                    c4.metric("EFFONDREMENT FC", f"{_collapse_pct:.1f}%")
+                elif _drift_pct is not None:
+                    c4.metric("DÉRIVE EF", f"{_drift_pct:.1f}%")
+
+    # ── Bandeaux alerte COLLAPSE / données insuffisantes ────────
+    if info['has_hr'] and drift:
+        _p = drift.get('pattern')
+        _i = drift.get('insufficient_data', False)
+
+        if _p == 'COLLAPSE':
+            fc_q1  = drift.get('fc_q1_mean') or 0
+            fc_q4  = drift.get('fc_q4_mean') or 0
+            cp     = drift.get('collapse_pct') or 0
+            slope  = drift.get('fc_slope_bph') or 0
+            st.markdown(f"""
+            <div style="padding:14px 18px;background:#0D1520;
+                        border-left:3px solid #C84850;margin:8px 0 16px;">
+                <div style="font-family:'DM Mono',monospace;font-size:0.58rem;
+                            color:#C84850;letter-spacing:0.2em;margin-bottom:6px;">
+                    ● CARDIAC COLLAPSE DÉTECTÉ
+                </div>
+                <div style="font-family:'Barlow Condensed',sans-serif;font-size:1.1rem;
+                            font-weight:700;color:#ffffff;margin-bottom:4px;">
+                    FC effondrée de {abs(cp):.1f}% sur terrain plat
+                </div>
+                <div style="font-family:'DM Mono',monospace;font-size:0.68rem;color:#4A6070;">
+                    FC Q1 : {fc_q1:.0f} bpm &nbsp;→&nbsp; FC Q4 : {fc_q4:.0f} bpm
+                    &nbsp;|&nbsp; Pente : {slope:.1f} bpm/h
+                    &nbsp;|&nbsp; EF fin de course non interprétable
+                </div>
+            </div>""", unsafe_allow_html=True)
+
+        elif _i:
+            st.markdown("""
+            <div style="padding:10px 16px;background:#0D1520;
+                        border-left:2px solid rgba(65,200,232,0.2);margin:8px 0 12px;">
+                <span style="font-family:'DM Mono',monospace;font-size:0.6rem;
+                             color:#2A4050;letter-spacing:0.15em;">
+                    ◆ DÉRIVE EF — Données insuffisantes · moins de 10 min de terrain plat détecté
+                </span>
+            </div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1400,7 +1577,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                         <div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:#2A4050;letter-spacing:0.2em">{z}</div>
                         <div style="font-family:'Barlow Condensed',sans-serif;font-size:1.8rem;font-weight:700;color:{zone_colors_hex[i]}">{pct:.0f}%</div>
                         <div style="font-family:'DM Mono',monospace;font-size:0.65rem;color:#3A5060">{mm} min</div>
-                        <div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:#2A4050;margin-top:4px">{bpm[0]}-{bpm[1]} bpm</div>
+                        <div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:#2A4050;margin-top:4px">{bpm[0]}–{bpm[1]} bpm</div>
                         <div style="font-family:'DM Sans',sans-serif;font-size:0.65rem;color:#2A4050;margin-top:4px">{ZONE_NAMES[z]}</div>
                     </div>""", unsafe_allow_html=True)
 
@@ -1413,18 +1590,52 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                 st.plotly_chart(chart_hr_by_grade(hr_grade), use_container_width=True)
             with hz2:
                 st.markdown('<div class="hud-label" style="margin-bottom:4px;">Découplage cardiaque (EF par quartile)</div>', unsafe_allow_html=True)
+
+                # Bandeau alerte si COLLAPSE — graphe conservé mais contextualisé
+                _pattern_hz = drift.get('pattern')
+                if _pattern_hz == 'COLLAPSE':
+                    st.markdown("""
+                    <div style="padding:8px 12px;background:#0D1520;
+                                border-left:2px solid #C84850;margin-bottom:8px;">
+                        <span style="font-family:'DM Mono',monospace;font-size:0.58rem;
+                                     color:#C84850;letter-spacing:0.15em;">
+                            ● EF non interprétable — cardiac collapse détecté
+                        </span>
+                    </div>""", unsafe_allow_html=True)
+
                 if drift['quartiles']:
                     st.plotly_chart(chart_ef_quartiles(drift['quartiles']), use_container_width=True)
-                if drift.get('drift_pct') is not None:
-                    color = '#C84850' if drift['drift_pct'] < -5 else '#C8A84B' if drift['drift_pct'] < -2 else '#41C8E8'
+
+                # Bloc résumé dérive EF — affiché sauf COLLAPSE
+                if _pattern_hz != 'COLLAPSE' and drift.get('drift_pct') is not None:
+                    _dp = drift['drift_pct']
+                    color = '#C84850' if _dp < -5 else '#C8A84B' if _dp < -2 else '#41C8E8'
                     st.markdown(f"""
                     <div style="background:#0D1520;border:1px solid #152030;padding:12px;margin-top:8px;">
                         <div class="hud-label">Dérive EF (plat)</div>
                         <div style="font-family:'Barlow Condensed',sans-serif;font-size:2rem;font-weight:700;color:{color}">
-                            {drift['drift_pct']:.1f}%
+                            {_dp:.1f}%
                         </div>
                         <div style="font-family:'DM Mono',monospace;font-size:0.65rem;color:#3A5060">
                             EF1={drift['ef1']:.3f} → EF2={drift['ef2']:.3f}
+                        </div>
+                    </div>""", unsafe_allow_html=True)
+
+                # En cas de COLLAPSE : affichage FC Q1/Q4 à la place
+                elif _pattern_hz == 'COLLAPSE':
+                    fc_q1 = drift.get('fc_q1_mean') or 0
+                    fc_q4 = drift.get('fc_q4_mean') or 0
+                    cp    = drift.get('collapse_pct') or 0
+                    st.markdown(f"""
+                    <div style="background:#0D1520;border:1px solid #152030;
+                                border-left:2px solid #C84850;padding:12px;margin-top:8px;">
+                        <div class="hud-label" style="color:#C84850;">FC Collapse (plat)</div>
+                        <div style="font-family:'Barlow Condensed',sans-serif;font-size:2rem;
+                                    font-weight:700;color:#C84850;">
+                            {abs(cp):.1f}%
+                        </div>
+                        <div style="font-family:'DM Mono',monospace;font-size:0.65rem;color:#3A5060">
+                            FC Q1 : {fc_q1:.0f} bpm → FC Q4 : {fc_q4:.0f} bpm
                         </div>
                     </div>""", unsafe_allow_html=True)
 
@@ -1515,6 +1726,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                 hr_color = '#C84850' if sp['hr'] and sp['hr'] > fcmax * 0.92 else '#C8D4DC'
                 row += f'<td style="color:{hr_color}">{sp["hr"] or "--"}</td>'
             if has_cad_sp:
+                # FIX v3.1 : zone optimale recalculée en SPM total
                 cad_color = '#41C8E8' if sp['cadence'] and 170 <= sp['cadence'] <= 200 else '#C8D4DC'
                 row += f'<td style="color:{cad_color}">{sp["cadence"] or "--"}</td>'
             rows_html += f'<tr>{row}</tr>'
@@ -1584,3 +1796,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
