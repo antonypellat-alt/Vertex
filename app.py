@@ -268,22 +268,29 @@ def render_landing():
 
         col_fc, col_mode = st.columns([1, 1])
         with col_fc:
+            if 'fcmax' not in st.session_state:
+                st.session_state['fcmax'] = 190
             fcmax_input = st.number_input(
                 "FCmax (bpm)",
                 min_value=150, max_value=220,
-                value=st.session_state.get('fcmax', 190),
+                value=st.session_state['fcmax'],
                 step=1,
-                help="Ta fréquence cardiaque maximale réelle",
+                key='fcmax',
+                help="Ta fréquence cardiaque maximale réelle (défaut : 190 bpm)",
             )
-            st.session_state['fcmax'] = fcmax_input
-
         with col_mode:
-            zone_mode = st.selectbox(
-                "Mode zones FC",
-                options=["Auto (% FCmax)", "Manuel (je connais mes zones)"],
-                index=0 if st.session_state.get('zone_mode', 'auto') == 'auto' else 1,
+            st.markdown(
+                '<div style="font-family:\'DM Mono\',monospace;font-size:0.62rem;'
+                'color:#2A4050;letter-spacing:0.15em;text-transform:uppercase;'
+                'margin-bottom:8px;">Zones FC</div>',
+                unsafe_allow_html=True
             )
-            st.session_state['zone_mode'] = 'auto' if zone_mode.startswith('Auto') else 'manual'
+            manual_zones = st.checkbox(
+                "Je connais mes zones",
+                value=st.session_state.get('zone_mode', 'auto') == 'manual',
+                help="Cocher pour saisir tes seuils de zones directement en bpm",
+            )
+            st.session_state['zone_mode'] = 'manual' if manual_zones else 'auto'
 
         if st.session_state['zone_mode'] == 'manual':
             st.markdown("""
@@ -324,9 +331,14 @@ def render_landing():
             label_visibility="visible",
         )
         if uploaded:
-            st.session_state['gpx_bytes']    = uploaded.read()
+            st.session_state['gpx_bytes_pending'] = uploaded.read()
             st.session_state['gpx_filename'] = uploaded.name
-            st.rerun()
+
+        if st.session_state.get('gpx_bytes_pending'):
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("▲  VALIDER ET ANALYSER", use_container_width=True):
+                st.session_state['gpx_bytes'] = st.session_state.pop('gpx_bytes_pending')
+                st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
