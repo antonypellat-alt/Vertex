@@ -366,6 +366,17 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         pdf.ln(2)
 
         section("SCORE VERTEX")
+        score_color = (65,200,232) if perf['score'] >= 80 else (200,168,75) if perf['score'] >= 60 else (200,72,80)
+        kpi("Score global :", str(perf['score']) + " / 100", color=score_color)
+        kpi("  GAP Q4/Q1 :", f"{perf['score_gap']} / 100  (poids {int(perf['weights']['gap']*100)}%)")
+        ef_str = f"{perf['score_ef']} / 100  (poids {int(perf['weights']['ef']*100)}%)" if perf['score_ef'] is not None else "N/A"
+        kpi("  Derive EF :", ef_str)
+        kpi("  Regularite :", f"{perf['score_var']} / 100  (poids {int(perf['weights']['var']*100)}%)")
+        if perf['partial'] and perf['partial_reason']:
+            pdf.set_font("Helvetica", "", 7)
+            pdf.set_text_color(200, 168, 75)
+            pdf.cell(0, 5, clean(f"Score partiel : {perf['partial_reason']}"), ln=True)
+        pdf.ln(2)
 
     if zones:
         section("ZONES DE FREQUENCE CARDIAQUE")
