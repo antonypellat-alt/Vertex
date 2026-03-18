@@ -976,6 +976,11 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                   color:#C8A84B;letter-spacing:0.15em;text-decoration:none;">
             ▶ 2 MINUTES DE FEEDBACK →
         </a>
+        <div style="font-family:'DM Mono',monospace;font-size:0.58rem;
+                    color:#2A4050;margin-top:10px;letter-spacing:0.1em;">
+            Construit par Antony · AC2A Team Trail · Version beta —
+            ton retour façonne directement la prochaine version.
+        </div>
     </div>""", unsafe_allow_html=True)
 
 
