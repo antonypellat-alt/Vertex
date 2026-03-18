@@ -45,12 +45,34 @@ def _layout(**overrides):
 def chart_elevation(df: pd.DataFrame) -> go.Figure:
     dist_km = df['distance'] / 1000
     fig = go.Figure()
+
+    # Courbe de base — élévation complète
     fig.add_trace(go.Scatter(
         x=dist_km, y=df['elevation'],
         mode='lines', line=dict(color='#41C8E8', width=1.5),
         fill='tozeroy', fillcolor='rgba(65,200,232,0.06)',
+        name='Élévation',
     ))
-    fig.update_layout(**_layout(height=180, yaxis_title="m", xaxis_title="km"))
+
+    # Sprint 2 ④ : segments marche active en surimpression orange
+    if 'is_walk' in df.columns and df['is_walk'].any():
+        walk_mask = df['is_walk']
+        # On trace uniquement les points marche (NaN ailleurs → segments discontinus)
+        walk_ele = df['elevation'].where(walk_mask)
+        fig.add_trace(go.Scatter(
+            x=dist_km, y=walk_ele,
+            mode='lines', line=dict(color='#C8A84B', width=3),
+            name='Marche active',
+            connectgaps=False,
+        ))
+
+    fig.update_layout(**_layout(
+        height=180,
+        showlegend=df['is_walk'].any() if 'is_walk' in df.columns else False,
+        legend=dict(bgcolor='rgba(0,0,0,0)', font=dict(color='#4A6070', size=9)),
+        yaxis_title="m",
+        xaxis_title="km",
+    ))
     return fig
 
 
@@ -244,7 +266,7 @@ def clean(text: str) -> str:
 
 def generate_pdf(info, fi, flat_v, profile, grade_df,
                  zones, drift, cad_analysis, splits, recs,
-                 fcmax, email="") -> bytes:
+                 fcmax, perf=None, email="") -> bytes:
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
@@ -302,6 +324,20 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     if info.get('cad_mean'):
         kpi("Cadence moyenne :", f"{int(info['cad_mean'])} spm")
     kpi("Classification :", profile)
+
+    # Section score global — Sprint 2 ⑧
+    if perf:
+        section("SCORE VERTEX")
+        score_color = (65,200,232) if perf['score'] >= 80 else (200,168,75) if perf['score'] >= 60 else (200,72,80)
+        kpi("Score global :", str(perf['score']) + " / 100", color=score_color)
+        kpi("  GAP Q4/Q1 :", f"{perf['score_gap']} / 100  (poids {int(perf['weights']['gap']*100)}%)")
+        ef_str = f"{perf['score_ef']} / 100  (poids {int(perf['weights']['ef']*100)}%)" if perf['score_ef'] is not None else "N/A"
+        kpi("  Dérive EF :", ef_str)
+        kpi("  Régularité :", f"{perf['score_var']} / 100  (poids {int(perf['weights']['var']*100)}%)")
+        if perf['partial'] and perf['partial_reason']:
+            pdf.set_font("Helvetica", "", 7)
+            pdf.set_text_color(200, 168, 75)
+            pdf.cell(0, 5, clean(f"⚠ {perf['partial_reason']}"), ln=True)
 
     if zones:
         section("ZONES DE FREQUENCE CARDIAQUE")
@@ -417,3 +453,4 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         ln=True, align="C")
 
     return bytes(pdf.output())
+
