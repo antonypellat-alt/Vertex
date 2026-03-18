@@ -273,7 +273,6 @@ def render_landing():
             fcmax_input = st.number_input(
                 "FCmax (bpm)",
                 min_value=150, max_value=220,
-                value=st.session_state['fcmax'],
                 step=1,
                 key='fcmax',
                 help="Ta fréquence cardiaque maximale réelle (défaut : 190 bpm)",
