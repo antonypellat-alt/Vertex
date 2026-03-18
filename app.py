@@ -958,7 +958,23 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                 "⬇  TELECHARGER LE RAPPORT", data=pdf_bytes,
                 file_name=fname, mime="application/pdf",
             )
-
+            st.markdown("""
+            <div style="margin-top:20px;padding:14px 18px;background:#0D1520;
+                        border:1px solid #152030;border-left:3px solid #C8A84B;">
+                <div style="font-family:'DM Mono',monospace;font-size:0.58rem;
+                            color:#C8A84B;letter-spacing:0.2em;margin-bottom:6px">
+                    BETA FEEDBACK
+                </div>
+                <div style="font-family:'Barlow Condensed',sans-serif;font-size:1rem;
+                            font-weight:700;color:#ffffff;margin-bottom:8px">
+                    Cette analyse t'a été utile ?
+                </div>
+                <a href="https://tally.so/r/zxeJPM" target="_blank"
+                   style="font-family:'Barlow Condensed',sans-serif;font-size:0.9rem;
+                          color:#C8A84B;letter-spacing:0.15em;text-decoration:none;">
+                    ▶ 2 MINUTES DE FEEDBACK →
+                </a>
+            </div>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════
 # 3 — MAIN
