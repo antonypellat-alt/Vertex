@@ -437,7 +437,7 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     pdf.set_xy(15, 44)
     pdf.set_font("Helvetica", "B", 16)
     pdf.set_text_color(*_vcolor)
-    pdf.cell(120, 8, clean(f"{_vicon}  {_vlabel}"), border=0, ln=True)
+    pdf.cell(120, 8, clean(_vlabel), border=0, ln=True)
 
     # Verdict sub
     if _vsub:
