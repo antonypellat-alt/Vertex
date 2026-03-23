@@ -617,16 +617,14 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
         'fc_q1_mean': None, 'fc_q4_mean': None, 'insufficient_data': True,
     }
     hr_grade = hr_by_grade(df) if info['has_hr'] else None
-    recs     = generate_coach_recommendations(profile, fi_score, drift, cad_an, info, fcmax)
     # SCI-3 : utiliser decay_ratio_corrected pour le score si correction appliquée
     fi_score = dict(fi)
     _corr = fi.get('decay_ratio_corrected', float('nan'))
     if fi.get('correction_applied') and not (isinstance(_corr, float) and math.isnan(_corr)):
-        fi_score['decay_ratio'] = fi['decay_ratio_corrected']
-        fi_score['decay_pct']   = fi['decay_pct_corrected']
+    fi_score['decay_ratio'] = fi['decay_ratio_corrected']
+    fi_score['decay_pct']   = fi['decay_pct_corrected']
+    recs     = generate_coach_recommendations(profile, fi_score, drift, cad_an, info, fcmax)
     perf     = compute_performance_score(fi_score, drift, dp_per_km=_dp_per_km)
-    verdict  = compute_verdict(fi_score, drift, perf)
-
     # ══ KAI UX — SÉQUENCE ABOVE THE FOLD ═══════════════════════════
     # Ordre : 1) Titre + badge  2) Verdict + Score fusionnés
     #         3) Warnings en expander replié  4) KPIs + détail
