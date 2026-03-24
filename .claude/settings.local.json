@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python -m pytest test_engine.py -v)",
+      "Bash(python -m pytest test_engine.py -v --tb=no)",
+      "Bash(python test_engine.py)",
+      "Bash(python -X utf8 test_engine.py)"
+    ]
+  }
+}
