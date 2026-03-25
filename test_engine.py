@@ -1512,6 +1512,99 @@ test("R7 · elev_profile present dans le retour",
 
 
 # ══════════════════════════════════════════════════════════════════
+# S — COMPUTE_VERDICT : action_line présente pour chaque code (B1 Sprint 5)
+# ══════════════════════════════════════════════════════════════════
+
+section("S — compute_verdict() · action_line présente (B1 Sprint 5)")
+
+def _cv(fi_dict, drift_dict, score):
+    return compute_verdict(fi_dict, drift_dict, {'score': score})
+
+def _has_action(r):
+    return 'action_line' in r and isinstance(r['action_line'], str) and len(r['action_line']) > 5
+
+# S1 : INSUFFICIENT → action_line présente
+r = _cv({'decay_ratio': float('nan'), 'decay_pct': float('nan')},
+        {'pattern': None, 'insufficient_data': True, 'collapse_pct': None,
+         'drift_pct': None, 'fc_slope_bph': None}, 0)
+test("S1 · INSUFFICIENT → action_line présente",
+     r['code'] == 'INSUFFICIENT' and _has_action(r),
+     f"code={r['code']} action='{r.get('action_line','MISSING')[:40]}'")
+
+# S2 : V1-NS (NEGATIVE_SPLIT) → action_line présente
+r = _cv({'decay_ratio': 0.97, 'decay_pct': 3.0},
+        {'pattern': 'NEGATIVE_SPLIT', 'insufficient_data': False, 'collapse_pct': None,
+         'drift_pct': None, 'fc_slope_bph': -1.5, 'decay_v': 0.10}, 82)
+test("S2 · V1-NS (NEGATIVE_SPLIT) → action_line présente",
+     r['code'] == 'V1' and _has_action(r),
+     f"code={r['code']} action='{r.get('action_line','MISSING')[:40]}'")
+
+# S3 : V7 (COLLAPSE + decay>0.90 + score>75) → action_line présente
+r = _cv({'decay_ratio': 0.93, 'decay_pct': 7.0},
+        {'pattern': 'COLLAPSE', 'insufficient_data': False, 'collapse_pct': -18.0,
+         'drift_pct': None, 'fc_slope_bph': -4.0}, 80)
+test("S3 · V7 → action_line présente",
+     r['code'] == 'V7' and _has_action(r),
+     f"code={r['code']} action='{r.get('action_line','MISSING')[:40]}'")
+
+# S4 : V6 (COLLAPSE + decay<0.85) → action_line présente
+r = _cv({'decay_ratio': 0.82, 'decay_pct': 18.0},
+        {'pattern': 'COLLAPSE', 'insufficient_data': False, 'collapse_pct': -22.0,
+         'drift_pct': None, 'fc_slope_bph': -4.0}, 48)
+test("S4 · V6 (COLLAPSE + decay<0.85) → action_line présente",
+     r['code'] == 'V6' and _has_action(r),
+     f"code={r['code']} action='{r.get('action_line','MISSING')[:40]}'")
+
+# S5 : V5 (decay < 0.80) → action_line présente
+r = _cv({'decay_ratio': 0.75, 'decay_pct': 25.0},
+        {'pattern': 'STABLE', 'insufficient_data': False, 'collapse_pct': None,
+         'drift_pct': None, 'fc_slope_bph': 0.3}, 42)
+test("S5 · V5 (decay<0.80) → action_line présente",
+     r['code'] == 'V5' and _has_action(r),
+     f"code={r['code']} action='{r.get('action_line','MISSING')[:40]}'")
+
+# S6 : V4 (DRIFT + decay<0.90 + score<50) → action_line présente
+r = _cv({'decay_ratio': 0.86, 'decay_pct': 14.0},
+        {'pattern': 'DRIFT', 'insufficient_data': False, 'collapse_pct': None,
+         'drift_pct': -3.5, 'fc_slope_bph': 0.4}, 44)
+test("S6 · V4 (DRIFT + decay<0.90 + score<50) → action_line présente",
+     r['code'] == 'V4' and _has_action(r),
+     f"code={r['code']} action='{r.get('action_line','MISSING')[:40]}'")
+
+# S7 : V3 standard (decay 0.80–0.90) → action_line présente
+r = _cv({'decay_ratio': 0.85, 'decay_pct': 15.0},
+        {'pattern': 'STABLE', 'insufficient_data': False, 'collapse_pct': None,
+         'drift_pct': None, 'fc_slope_bph': 0.2}, 60)
+test("S7 · V3 standard (decay 0.80–0.90) → action_line présente",
+     r['code'] == 'V3' and _has_action(r),
+     f"code={r['code']} action='{r.get('action_line','MISSING')[:40]}'")
+
+# S8 : V2 standard → action_line présente
+r = _cv({'decay_ratio': 0.92, 'decay_pct': 8.0},
+        {'pattern': 'STABLE', 'insufficient_data': False, 'collapse_pct': None,
+         'drift_pct': None, 'fc_slope_bph': 0.2}, 65)
+test("S8 · V2 standard → action_line présente",
+     r['code'] == 'V2' and _has_action(r),
+     f"code={r['code']} action='{r.get('action_line','MISSING')[:40]}'")
+
+# S9 : V1 → action_line présente
+r = _cv({'decay_ratio': 0.95, 'decay_pct': 5.0},
+        {'pattern': 'STABLE', 'insufficient_data': False, 'collapse_pct': None,
+         'drift_pct': None, 'fc_slope_bph': 0.1}, 80)
+test("S9 · V1 (score>=75, decay>=0.90) → action_line présente",
+     r['code'] == 'V1' and _has_action(r),
+     f"code={r['code']} action='{r.get('action_line','MISSING')[:40]}'")
+
+# S10 : V2 DRIFT-CARDIO → action_line différenciée
+r = _cv({'decay_ratio': 0.92, 'decay_pct': 8.0},
+        {'pattern': 'DRIFT-CARDIO', 'insufficient_data': False, 'collapse_pct': None,
+         'drift_pct': -5.0, 'fc_slope_bph': 2.5}, 62)
+test("S10 · V2 DRIFT-CARDIO → action_line présente et différenciée",
+     r['code'] == 'V2' and _has_action(r),
+     f"code={r['code']} action='{r.get('action_line','MISSING')[:50]}'")
+
+
+# ══════════════════════════════════════════════════════════════════
 # RAPPORT FINAL
 # ══════════════════════════════════════════════════════════════════
 

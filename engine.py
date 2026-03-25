@@ -1320,6 +1320,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'sub':   "GAP non calculable — fichier trop court ou vitesse nulle.",
             'color': '#2A4050',
             'icon':  'ℹ',
+            'action_line': "→ Vérifie que ton fichier contient bien des données de vitesse, puis relance l'analyse.",
         }
 
     # ── V1-NS : NEGATIVE_SPLIT — FC baisse car performance monte ───
@@ -1332,6 +1333,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'sub':   f"La fréquence cardiaque a baissé en fin de course parce que l'allure a progressé — tu as couru la seconde partie {abs(_dv)*100:.0f}% plus vite que la première. Gestion d'effort maîtrisée.",
             'color': '#41C8E8',
             'icon':  '↑',
+            'action_line': "→ Reproduis cette stratégie : pars conservateur, augmente l'allure après le mi-temps.",
         }
 
     # ── V7 : COLLAPSE + allure tenue + score élevé ───────────────
@@ -1343,6 +1345,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'sub':   f"La fréquence cardiaque a chuté de {cp:.1f}% mais la vitesse est restée stable — signal rare qui mérite attention. Mentionne-le à un médecin du sport, même en l'absence de symptômes.",
             'color': '#C84850',
             'icon':  '⚠',
+            'action_line': "→ Consulte un médecin du sport avant ta prochaine compétition — ne reporte pas.",
         }
 
     # ── V3-COLLAPSE : COLLAPSE + decay 0.85–0.90 ─────────────────
@@ -1358,6 +1361,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'sub':   f"L'allure a reculé de {dp:.1f}% entre la première et la deuxième moitié — fréquence cardiaque en chute de {cp:.1f}% sur terrain plat. Identifie le moment de rupture : nutrition, départ trop rapide ou fatigue musculaire.",
             'color': '#C8A84B',
             'icon':  '~',
+            'action_line': "→ Identifie le kilomètre de rupture et ajuste ta stratégie de ravitaillement pour la prochaine fois.",
         }
 
     # ── V6 : COLLAPSE franc (decay < 0.85) ───────────────────────
@@ -1369,6 +1373,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'sub':   f"La fréquence cardiaque a chuté de {cp:.1f}% sur les parties plates alors que la course continuait — signal hors norme. Mentionne-le à un médecin du sport avant ta prochaine compétition.",
             'color': '#C84850',
             'icon':  '⚠',
+            'action_line': "→ Consulte un médecin du sport avant ta prochaine compétition — ne reporte pas.",
         }
 
     # ── V5 : Effondrement allure ─────────────────────────────────
@@ -1380,6 +1385,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'sub':   f"{dp:.1f}% de vitesse perdue sur terrain plat entre la première et la deuxième moitié — rupture franche en fin de course. Identifie le kilomètre de rupture : c'est le point de départ pour corriger la prochaine fois.",
             'color': '#C84850',
             'icon':  '✕',
+            'action_line': "→ Repose-toi 72h minimum avant toute séance intense, puis repasse en volume lent.",
         }
 
     # ── V4 : Fatigue combinée ─────────────────────────────────────
@@ -1392,6 +1398,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'sub':   f"La fréquence cardiaque et la vitesse ont décroché en même temps — double signal de surmenage sur cette course. Priorité : récupération complète avant toute séance intense.",
             'color': '#C84850',
             'icon':  '✕',
+            'action_line': "→ Stop séances intenses — récupération complète cette semaine, puis reprise progressive en Z2.",
         }
 
     # ── V3-NEURO : DRIFT-NEURO + decay < 0.93 (CDC Elena v1.3) ────
@@ -1405,6 +1412,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'sub':   f"L'allure a reculé de {dp:.1f}% — la fréquence cardiaque est restée stable mais la vitesse a baissé. Signal neuromusculaire : tes muscles se fatiguent avant ton coeur. Priorité : sorties longues à allure modérée.",
             'color': '#C8A84B',
             'icon':  '~',
+            'action_line': "→ Ajoute une sortie longue en Z2 cette semaine pour renforcer ta résistance musculaire.",
         }
 
     # ── V3 : Dégradation progressive ─────────────────────────────
@@ -1416,29 +1424,36 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'sub':   f"L'allure a reculé de {dp:.1f}% entre la première et la deuxième moitié de course. Identifie le moment de rupture : nutrition, départ trop rapide ou fatigue musculaire.",
             'color': '#C8A84B',
             'icon':  '~',
+            'action_line': "→ Repasse les splits par km : le moment de rupture est là — c'est ton point de travail pour la prochaine fois.",
         }
 
     # ── V2 : Performance correcte ────────────────────────────────
     if score < 75:
         fc_slope = drift.get('fc_slope_bph')
         if pattern == 'DRIFT-CARDIO' and fc_slope is not None and fc_slope > 0.5:
-            _sub = (
-                f"Score {score}/100 — l'allure a tenu, mais ton cœur a dû forcer progressivement "
-                f"pour la maintenir : +{fc_slope:.1f} bpm/h de dérive cardiaque sur la course. "
-                f"Tu as tenu l'effort au prix d'une surcharge cardiovasculaire croissante. "
-                f"Travaille le volume aérobie à basse intensité pour réduire cette dérive."
-            )
-        else:
-            _sub = (
-                f"Score {score}/100 — bonne course, mais l'allure n'a pas été régulière sur la durée. "
-                f"Travaille la régularité d'allure sur tes prochaines sorties longues."
-            )
+            return {
+                'code':  'V2',
+                'label': 'PERFORMANCE CORRECTE',
+                'sub':   (
+                    f"Score {score}/100 — l'allure a tenu, mais ton cœur a dû forcer progressivement "
+                    f"pour la maintenir : +{fc_slope:.1f} bpm/h de dérive cardiaque sur la course. "
+                    f"Tu as tenu l'effort au prix d'une surcharge cardiovasculaire croissante. "
+                    f"Travaille le volume aérobie à basse intensité pour réduire cette dérive."
+                ),
+                'color': '#C8A84B',
+                'icon':  '~',
+                'action_line': "→ Intègre 2 sorties Z1-Z2 par semaine pendant 4 semaines — c'est ce qui réduit la dérive cardiaque.",
+            }
         return {
             'code':  'V2',
             'label': 'PERFORMANCE CORRECTE',
-            'sub':   _sub,
+            'sub':   (
+                f"Score {score}/100 — bonne course, mais l'allure n'a pas été régulière sur la durée. "
+                f"Travaille la régularité d'allure sur tes prochaines sorties longues."
+            ),
             'color': '#C8A84B',
             'icon':  '~',
+            'action_line': "→ Sur ta prochaine sortie longue, vise un écart d'allure <5% entre première et deuxième moitié.",
         }
 
     # ── V1 : Performance solide ───────────────────────────────────
@@ -1449,4 +1464,5 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
         'sub':   f"Score {score}/100 — l'allure a tenu du début à la fin, fréquence cardiaque stable. La base est solide : travaille la vitesse.",
         'color': '#41C8E8',
         'icon':  '✓',
+        'action_line': "→ La base est là — ajoute une séance de fractionné court cette semaine pour monter en vitesse.",
     }
