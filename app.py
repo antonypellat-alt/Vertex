@@ -718,6 +718,18 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
         </div>
     </div>""", unsafe_allow_html=True)
 
+    # ── 2b. Ligne action immédiate — B1 Sprint 5 ────────────────
+    _action = _v.get('action_line', '')
+    if _action:
+        st.markdown(f"""
+        <div style="padding:10px 20px;background:rgba(65,200,232,0.05);
+                    border-left:3px solid {_vcolor};margin-bottom:16px;margin-top:-10px;">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:1.05rem;
+                        font-weight:600;color:{_vcolor};letter-spacing:0.04em;">
+                {_action}
+            </div>
+        </div>""", unsafe_allow_html=True)
+
     # ── 3. Warnings — repliés dans expander ─────────────────────
     _vel_std = float(df['velocity'].std()) if 'velocity' in df.columns else 0.0
     _cad_amb = bool(df['cad_ambiguous'].any()) if 'cad_ambiguous' in df.columns else False
