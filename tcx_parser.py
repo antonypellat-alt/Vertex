@@ -1,11 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
 ║         VERTEX — tcx_parser.py                                   ║
-║         TCX parsing · Polar / Garmin · v1.0                      ║
+║         TCX parsing · Polar / Garmin                            ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
-import xml.etree.ElementTree as ET
+try:
+    import defusedxml.ElementTree as ET
+except ImportError:
+    import xml.etree.ElementTree as ET  # fallback si non installé
 from datetime import datetime
 
 import numpy as np
@@ -124,9 +127,9 @@ def parse_tcx(file_bytes: bytes) -> pd.DataFrame:
 
     if df['time'].notna().sum() > len(df) * 0.5:
         t0 = df['time'].iloc[0]
-        df['time_s'] = df['time'].apply(
-            lambda t: (t - t0).total_seconds() if pd.notna(t) else None
-        )
+        df['time_s'] = (
+            pd.to_datetime(df['time'], errors='coerce') - t0
+        ).dt.total_seconds()
         df['gap_flag'] = False
         time_diff = df['time_s'].diff()
         df.loc[time_diff > 30, 'gap_flag'] = True
@@ -147,8 +150,10 @@ def parse_tcx(file_bytes: bytes) -> pd.DataFrame:
         window -= 1
     try:
         df['elevation_smooth'] = savgol_filter(ele_values, window_length=window, polyorder=2)
-    except Exception:
+        df['elevation_degraded'] = False
+    except Exception as _sg_err:
         df['elevation_smooth'] = df['elevation']
+        df['elevation_degraded'] = True
 
     df['dz'] = df['elevation_smooth'].diff().fillna(0)
     df['grade'] = (df['dz'] / df['dd'].replace(0, float('nan')) * 100).fillna(0).clip(-40, 40)

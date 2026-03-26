@@ -5,3 +5,4 @@ scipy
 plotly
 fpdf2==2.7.9
 gpxpy
+defusedxml>=0.7.1

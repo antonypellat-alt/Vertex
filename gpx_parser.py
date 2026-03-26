@@ -1,11 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
 ║         VERTEX — gpx_parser.py                                   ║
-║         GPX parsing · Haversine · Race info · v3.5              ║
+║         GPX parsing · Haversine · Race info                     ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
-import xml.etree.ElementTree as ET
+try:
+    import defusedxml.ElementTree as ET
+except ImportError:
+    import xml.etree.ElementTree as ET  # fallback si non installé
 from datetime import datetime
 
 import numpy as np
@@ -101,23 +104,34 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
 
+    # Filtrer les points GPS invalides (fix perdu → coordonnées 0,0)
+    df = df[(df['lat'] != 0.0) | (df['lon'] != 0.0)].reset_index(drop=True)
+    if len(df) < 10:
+        raise ValueError(
+            "Fichier GPX invalide : moins de 10 points GPS valides après "
+            "filtrage des coordonnées nulles."
+        )
+
     # v3.3 : Haversine vectorisée — ×20 plus rapide sur GPX longs
     dist_increments = haversine_vec(df['lat'].to_numpy(), df['lon'].to_numpy())
     df['distance'] = np.cumsum(dist_increments)
 
     if df['time'].notna().sum() > len(df) * 0.5:
         t0 = df['time'].iloc[0]
-        df['time_s'] = df['time'].apply(
-            lambda t: (t - t0).total_seconds() if pd.notna(t) else None
-        )
-        # v3.3 : gap_flag — segments interpolés > 30s
+        df['time_s'] = (
+            pd.to_datetime(df['time'], errors='coerce') - t0
+        ).dt.total_seconds()
+        # gap_flag : segments interpolés > 30s (pause GPS, tunnel)
         df['gap_flag'] = False
         time_diff = df['time_s'].diff()
         df.loc[time_diff > 30, 'gap_flag'] = True
         df['time_s'] = df['time_s'].interpolate()
+        df['timestamps_estimated'] = False
     else:
+        # Timestamps absents ou insuffisants — vitesse fictive 10 km/h
         df['time_s'] = df['distance'] / (10000/3600)
         df['gap_flag'] = False
+        df['timestamps_estimated'] = True
 
     df['dt'] = df['time_s'].diff().fillna(1).clip(lower=0.1)
     df['dd'] = df['distance'].diff().fillna(0)
@@ -133,8 +147,10 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
     try:
         ele_smooth = savgol_filter(ele_values, window_length=window, polyorder=2)
         df['elevation_smooth'] = ele_smooth
-    except Exception:
+        df['elevation_degraded'] = False
+    except Exception as _sg_err:
         df['elevation_smooth'] = df['elevation']
+        df['elevation_degraded'] = True
 
     df['dz'] = df['elevation_smooth'].diff().fillna(0)
     df['grade'] = (df['dz'] / df['dd'].replace(0, float('nan')) * 100).fillna(0).clip(-40, 40)
@@ -156,7 +172,8 @@ def extract_race_info(df: pd.DataFrame, filename: str) -> dict:
     avg_velocity = df[df['velocity'] > 0.3]['velocity'].mean()
 
     has_hr  = df['hr'].notna().sum() > len(df) * 0.3
-    # v3.1 : seuil filtre cadence relevé à 80 (post-multiplication ×2)
+    hr_coverage_pct = round(df['hr'].notna().sum() / len(df) * 100, 1)
+    # Seuil 80 spm : filtre les artefacts capteur poignet (post-multiplication ×2)
     has_cad = df['cadence'].notna().sum() > len(df) * 0.3
 
     hr_mean  = df.loc[df['hr'] > 50, 'hr'].mean() if has_hr else None
@@ -173,8 +190,15 @@ def extract_race_info(df: pd.DataFrame, filename: str) -> dict:
         'min_elevation': df['elevation'].min(),
         'avg_velocity_ms': avg_velocity,
         'has_hr': has_hr,
+        'hr_coverage_pct': hr_coverage_pct,
         'has_cad': has_cad,
         'hr_mean': hr_mean,
         'hr_max': hr_max,
         'cad_mean': cad_mean,
+        'elevation_degraded': bool(df['elevation_degraded'].any()
+                                   if 'elevation_degraded' in df.columns
+                                   else False),
+        'timestamps_estimated': bool(df['timestamps_estimated'].any()
+                                     if 'timestamps_estimated' in df.columns
+                                     else False),
     }

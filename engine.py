@@ -1,7 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
 ║         VERTEX — engine.py                                       ║
-║         GAP · Fatigue · FC · Cadence · Recommandations · v3.5   ║
+║         GAP · Fatigue · FC · Cadence · Recommandations          ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -54,13 +54,12 @@ def v_to_pace(v: float) -> str:
 # ══════════════════════════════════════════════════════════════════
 
 def grade_pace_profile(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df['grade_abs'] = df['grade'].abs()
+    grade_abs = df['grade'].abs()
     bins   = [0, 5, 10, 15, 100]
     labels = ["0–5%", "5–10%", "10–15%", ">15%"]
-    df['bin'] = pd.cut(df['grade_abs'], bins=bins, labels=labels, right=False)
+    _df = df.assign(grade_abs=grade_abs, bin=pd.cut(grade_abs, bins=bins, labels=labels, right=False))
     profile = (
-        df[df['velocity'] > 0.3]
+        _df[_df['velocity'] > 0.3]
         .groupby('bin', observed=True)['velocity']
         .mean().reset_index()
     )
@@ -75,13 +74,12 @@ def grade_pace_profile(df: pd.DataFrame) -> pd.DataFrame:
 
 def fatigue_index(df: pd.DataFrame) -> dict:
     df = df.copy()
-    # v3.3 : vectorisé numpy
     df['gap'] = gap_correction_vec(df['velocity'].to_numpy(), df['grade'].to_numpy())
     total = df['time_s'].max()
     q_size = total / 4
     quartiles = {}
     for i in range(1, 5):
-        mask = (df['time_s'] >= (i-1)*q_size) & (df['time_s'] < i*q_size)
+        mask = (df['time_s'] >= (i-1)*q_size) & (df['time_s'] < i*q_size if i < 4 else df['time_s'] <= total)
         q_df = df[mask & (df['velocity'] > 0.3)]
         quartiles[f'Q{i}'] = round(q_df['gap'].mean(), 4) if len(q_df) > 5 else float('nan')
     q1 = quartiles.get('Q1', 0)
@@ -99,7 +97,6 @@ def flat_pace_estimate(df: pd.DataFrame) -> float:
     fdf = df[flat_mask]
     if len(fdf) < 10:
         return df[df['velocity'] > 0.3]['velocity'].median()
-    # v3.3 : vectorisé numpy
     return float(np.median(gap_correction_vec(
         fdf['velocity'].to_numpy(), fdf['grade'].to_numpy()
     )))
@@ -129,6 +126,11 @@ ZONE_NAMES = {
 
 
 def compute_hr_zones(df: pd.DataFrame, fcmax: int, custom_zones: dict = None) -> dict:
+    if not isinstance(fcmax, (int, float)) or fcmax <= 0 or fcmax > 250:
+        raise ValueError(
+            f"FCmax invalide : {fcmax}. "
+            "Valeur attendue entre 1 et 250 bpm."
+        )
     valid = df[df['hr'] > 50].copy()
     valid['dt'] = valid['time_s'].diff().fillna(0).clip(0, 30)
 
@@ -217,7 +219,7 @@ def cardiac_drift(df: pd.DataFrame,
 
     flat = flat.sort_values('distance').reset_index(drop=True)
 
-    # Item ⑤ : seuil minimum 10 min de terrain plat
+    # Minimum 10 min de plat : moins de données = EF statistiquement non fiable
     flat_duration_min = (flat['time_s'].max() - flat['time_s'].min()) / 60
     if flat_duration_min < 10:
         return _empty
@@ -250,10 +252,16 @@ def cardiac_drift(df: pd.DataFrame,
     q_size_t   = total_time / 4
     ef_q = {}
     for i in range(1, 5):
-        q = flat[
-            (flat['time_s'] >= t_start + (i-1)*q_size_t) &
-            (flat['time_s'] <  t_start + i*q_size_t)
-        ]
+        if i < 4:
+            q = flat[
+                (flat['time_s'] >= t_start + (i-1)*q_size_t) &
+                (flat['time_s'] <  t_start + i*q_size_t)
+            ]
+        else:
+            q = flat[
+                (flat['time_s'] >= t_start + (i-1)*q_size_t) &
+                (flat['time_s'] <= t_start + total_time)
+            ]
         ef_q[f'Q{i}'] = ef(q)
 
     # FC moyenne par quartile temps (cohérence F6)
@@ -263,10 +271,16 @@ def cardiac_drift(df: pd.DataFrame,
 
     fc_q = {}
     for i in range(1, 5):
-        q = flat[
-            (flat['time_s'] >= t_start + (i-1)*q_size_t) &
-            (flat['time_s'] <  t_start + i*q_size_t)
-        ]
+        if i < 4:
+            q = flat[
+                (flat['time_s'] >= t_start + (i-1)*q_size_t) &
+                (flat['time_s'] <  t_start + i*q_size_t)
+            ]
+        else:
+            q = flat[
+                (flat['time_s'] >= t_start + (i-1)*q_size_t) &
+                (flat['time_s'] <= t_start + total_time)
+            ]
         fc_q[f'Q{i}'] = fc_mean(q)
 
     fc_q1_mean = fc_q.get('Q1')
@@ -443,10 +457,10 @@ def compute_km_splits(df: pd.DataFrame) -> list:
         gap_v = gap_correction(v, seg['grade'].mean()) if v else None
 
         hr_mean  = seg.loc[seg['hr'] > 50, 'hr'].mean() if seg['hr'].notna().any() else None
-        # v3.1 : seuil filtre cadence relevé à 80
+        # Seuil 80 spm : filtre les artefacts capteur poignet (post-×2 Garmin)
         cad_mean = seg.loc[seg['cadence'] > 80, 'cadence'].mean() if seg['cadence'].notna().any() else None
 
-        # Sprint 2 ④ : flag marche active dans ce km
+        # is_walk requis : detect_walk_segments() doit être appelé avant compute_km_splits()
         has_walk = bool(seg['is_walk'].any()) if 'is_walk' in seg.columns else False
 
         splits.append({
@@ -487,25 +501,24 @@ def hr_by_grade(df: pd.DataFrame) -> pd.DataFrame:
 # ══════════════════════════════════════════════════════════════════
 
 def cadence_analysis(df: pd.DataFrame) -> dict:
-    # v3.1 : seuil filtre relevé à 80 (post-multiplication ×2)
+    # Seuil 80 spm : filtre les artefacts capteur poignet (post-multiplication ×2 Garmin)
     valid = df[df['cadence'] > 80]['cadence']
     if len(valid) < 10:
         return {'mean': None, 'max': None, 'dist': {}, 'optimal_pct': None}
 
-    # v3.1 : bins recalculés pour valeurs post-×2 (150–210 spm réaliste trail)
-    bins = {'<150': 0, '150-160': 0, '160-170': 0, '170-180': 0,
-            '180-190': 0, '190-200': 0, '>200': 0}
-    for c in valid:
-        if c < 150:    bins['<150'] += 1
-        elif c < 160:  bins['150-160'] += 1
-        elif c < 170:  bins['160-170'] += 1
-        elif c < 180:  bins['170-180'] += 1
-        elif c < 190:  bins['180-190'] += 1
-        elif c <= 200: bins['190-200'] += 1
-        else:          bins['>200'] += 1
-
+    # Bins post-multiplication ×2 Garmin : 150–210 spm réaliste trail
+    _bins   = [0, 150, 160, 170, 180, 190, 200, 9999]
+    _labels = ['<150', '150-160', '160-170', '170-180',
+               '180-190', '190-200', '>200']
+    cuts  = pd.cut(valid, bins=_bins, labels=_labels, right=False)
     total = len(valid)
-    pct = {k: v/total*100 for k, v in bins.items()}
+    pct   = {
+        lbl: float(counts / total * 100)
+        for lbl, counts in cuts.value_counts().items()
+    }
+    # Garantir que toutes les clés sont présentes (même à 0)
+    for lbl in _labels:
+        pct.setdefault(lbl, 0.0)
     # Zone optimale trail : 170-190 spm (= 85-95 spm unilatéral Garmin)
     optimal_pct = pct.get('170-180', 0) + pct.get('180-190', 0) + pct.get('190-200', 0)
 
@@ -1351,7 +1364,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
     # ── V3-COLLAPSE : COLLAPSE + decay 0.85–0.90 ─────────────────
     # Collapse nutritionnel ou thermique partiel : allure partiellement tenue
     # (decay > 0.85 = perte GAP < 15%) → dégradation progressive, pas anomalie franche
-    # BUG-1 Sprint 4A — CDC Elena v1.2 validé réunion contrôle
+    # COLLAPSE avec decay ≥ 0.85 → V3 (allure partiellement tenue malgré effondrement FC)
     if pattern == 'COLLAPSE' and not _isnan(decay_ratio) and decay_ratio >= 0.85:
         dp = decay_pct if not _isnan(decay_pct) else 0
         cp = abs(collapse_pct) if collapse_pct is not None else 0

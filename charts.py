@@ -1,7 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
 ║         VERTEX — charts.py                                       ║
-║         Plotly charts · PDF generator · v3.5                    ║
+║         Plotly charts · PDF generator                           ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -14,7 +14,17 @@ import pandas as pd
 import plotly.graph_objects as go
 from fpdf import FPDF
 
-from engine import gap_correction_vec, v_to_pace, _isnan
+from engine import gap_correction_vec, v_to_pace
+
+
+def _isnan(v) -> bool:
+    """Copie locale — évite dépendance sur symbole privé engine.py."""
+    if v is None:
+        return True
+    try:
+        return math.isnan(v)
+    except (TypeError, ValueError):
+        return True
 
 
 # ══════════════════════════════════════════════════════════════════

@@ -4,7 +4,7 @@
 
 Application Python/Streamlit d'analyse de performance trail running.
 
-Entrée : fichiers GPX/TCX. Sortie : score physiologique + rapport PDF.
+Entrée : fichiers GPX/TCX/FIT. Sortie : score physiologique + rapport PDF.
 
 Positionnement : "Strava montre ce que tu as fait. VERTEX explique ce que ça t'a coûté."
 
@@ -48,13 +48,15 @@ gpx\_parser.py   → parsing GPX, Haversine, extract\_race\_info
 
 tcx\_parser.py   → parsing TCX
 
+fit\_parser.py   → parsing FIT (Garmin natif)
+
 engine.py       → GAP (Minetti 2002), cardiac\_drift, score, VERDICT
 
 charts.py       → graphiques Plotly + générateur PDF (VertexPDF)
 
 app.py          → UI Streamlit uniquement (ce fichier)
 
-test\_engine.py  → suite de tests (sections A→R)
+test\_engine.py  → suite de tests (sections A→S)
 
 ```
 
@@ -146,7 +148,7 @@ python -m pytest test\_engine.py -v
 
 
 
-\*\*Sprint 5\*\* — débloqué, pas encore ouvert officiellement.
+\*\*Sprint 5\*\* — EN COURS.
 
 Tâches validées :
 
@@ -196,7 +198,7 @@ Tâches validées :
 
 \- Seuil COLLAPSE B : chute > 20% sur segments plats
 
-\- Ultra : ≥50km \*\*OU\*\* ≥4h (critère OU, pas ET — validé scientifiquement)
+\- Ultra : ≥50km \*\*ET\*\* ≥4h (critère ET strict — validé Elena CDC)
 
 \- Tally form hors bloc `if st.button`
 
@@ -244,7 +246,7 @@ Tâches validées :
 
 | `gpx\_parser.py` | Parsing GPX | 🟠 élevée |
 
-| `test\_engine.py` | Suite tests A→R | 🟡 importante |
+| `test\_engine.py` | Suite tests A→S | 🟡 importante |
 
 | `.streamlit/config.toml` | Analytics off | 🟡 importante |
 
@@ -252,5 +254,5 @@ Tâches validées :
 
 \*\*Règle absolue tests\*\* : aucun push sur `main` sans 100% tests verts.
 
-Sections actives : A→R + C10/C11/C12. État actuel : 129/134 (5 échecs env plotly/fpdf2 uniquement).
+Sections actives : A→S + C10/C11/C12 + K. État actuel : 143/144 — 1 échec connu M3 (PDF env).
 

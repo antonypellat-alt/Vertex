@@ -1,7 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
 ║         VERTEX — app.py  (UI uniquement)                        ║
-║         FC · Cadence · GAP · Zones · Découplage · v3.5          ║
+║         FC · Cadence · GAP · Zones · Découplage                 ║
 ╚══════════════════════════════════════════════════════════════════╝
 
 Architecture modulaire v3.5 :
@@ -28,6 +28,20 @@ from tcx_parser import parse_tcx as _parse_tcx
 @st.cache_data(show_spinner=False)
 def parse_tcx_cached(file_bytes: bytes):
     return _parse_tcx(file_bytes)
+
+try:
+    from fit_parser import parse_fit as _parse_fit
+    @st.cache_data(show_spinner=False)
+    def parse_fit_cached(file_bytes: bytes):
+        return _parse_fit(file_bytes)
+    _FIT_AVAILABLE = True
+except ImportError:
+    _FIT_AVAILABLE = False
+    def parse_fit_cached(file_bytes: bytes):
+        raise ValueError(
+            "Le support des fichiers FIT n'est pas disponible "
+            "sur cette instance."
+        )
 
 from engine import (
     fatigue_index, flat_pace_estimate, grade_pace_profile,
@@ -263,11 +277,7 @@ hr { border-color: #152030 !important; }
         padding: 5px 10px !important;
     }
 
-    /* Score cards — empilées */
-    [data-testid="column"] {
-        min-width: 100% !important;
-        width: 100% !important;
-    }
+    /* Score cards — empilées via flex-wrap natif Streamlit */
 
     /* Verdict bar — passage en colonne */
     .verdict-mobile-stack {
@@ -478,8 +488,8 @@ def render_landing():
         st.markdown("<br>", unsafe_allow_html=True)
 
         uploaded = st.file_uploader(
-            "IMPORTER UN FICHIER GPX / TCX",
-            type=["gpx", "tcx"],
+            "IMPORTER UN FICHIER GPX / TCX / FIT",
+            type=["gpx", "tcx", "fit"],
             help="Garmin Connect → Exporter l'original · Polar → Export TCX",
             label_visibility="visible",
         )
@@ -536,6 +546,22 @@ def render_landing():
 # ══════════════════════════════════════════════════════════════════
 
 def render_dashboard(gpx_bytes: bytes, filename: str):
+    # Guard taille fichier — OOM protection
+    _MAX_FILE_MB = 15
+    if len(gpx_bytes) > _MAX_FILE_MB * 1024 * 1024:
+        st.error(
+            f"Fichier trop volumineux ({len(gpx_bytes)//1024//1024} MB). "
+            f"Maximum autorisé : {_MAX_FILE_MB} MB. "
+            "Réduis la fréquence d'enregistrement GPS sur ta montre "
+            "(1 point/sec → 1 point/5sec)."
+        )
+        if st.button("↺ Recommencer"):
+            for k in ['gpx_bytes', 'gpx_filename', 'fcmax_confirmed',
+                      'zone_mode', 'custom_zones']:
+                st.session_state.pop(k, None)
+            st.rerun()
+        return
+
     # UX-KAI : ancre HTML native — fiable sur Streamlit Community Cloud (pas de cross-iframe)
     st.markdown('<div id="top"></div>', unsafe_allow_html=True)
     components.html(
@@ -549,17 +575,42 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     )
 
     ext = filename.lower().split('.')[-1]
-    spinner_label = "Analyse du fichier TCX..." if ext == 'tcx' else "Analyse du fichier GPX..."
+    if ext == 'tcx':
+        spinner_label = "Analyse du fichier TCX..."
+    elif ext == 'fit':
+        spinner_label = "Analyse du fichier FIT..."
+    else:
+        spinner_label = "Analyse du fichier GPX..."
     with st.spinner(spinner_label):
         try:
             if ext == 'tcx':
                 df = parse_tcx_cached(gpx_bytes)
+            elif ext == 'fit':
+                if not _FIT_AVAILABLE:
+                    st.error(
+                        "Les fichiers FIT ne sont pas supportés sur cette instance. "
+                        "Exporte ton activité en GPX depuis Garmin Connect."
+                    )
+                    return
+                df = parse_fit_cached(gpx_bytes)
             else:
                 df = parse_gpx(gpx_bytes)
-        except ValueError as e:
+        except (ValueError, KeyError, AttributeError) as e:
             st.error(f"Erreur de lecture ({ext.upper()}) : {e}")
             if st.button("↺ Recommencer"):
-                for k in ['gpx_bytes', 'gpx_filename', 'fcmax_confirmed', 'zone_mode', 'custom_zones']:
+                for k in ['gpx_bytes', 'gpx_filename', 'fcmax_confirmed',
+                          'zone_mode', 'custom_zones']:
+                    st.session_state.pop(k, None)
+                st.rerun()
+            return
+        except MemoryError:
+            st.error(
+                "Fichier trop volumineux pour être traité. "
+                "Réduis la fréquence d'enregistrement GPS sur ta montre."
+            )
+            if st.button("↺ Recommencer"):
+                for k in ['gpx_bytes', 'gpx_filename', 'fcmax_confirmed',
+                          'zone_mode', 'custom_zones']:
                     st.session_state.pop(k, None)
                 st.rerun()
             return
@@ -609,10 +660,24 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
 
     zones    = compute_hr_zones(df, fcmax, custom_zones if zone_mode == 'manual' else None) if info['has_hr'] else None
     _dp_per_km = info['elevation_gain'] / info['distance_km'] if info.get('distance_km', 0) > 0 else 0.0
-    # C5 v2 : decay_v passé à cardiac_drift pour discriminer COLLAPSE / NEGATIVE_SPLIT
-    _q1 = fi.get('quartiles', {}).get('Q1', 0) or 0
-    _q4 = fi.get('quartiles', {}).get('Q4', 0) or 0
-    _decay_v_app = (_q4 - _q1) / _q1 if _q1 > 0 else 0.0
+    # SCI-3 : construire fi_score (ratio corrigé) AVANT cardiac_drift
+    # pour que decay_v reflète le ratio corrigé et non les quartiles bruts
+    fi_score = dict(fi)
+    _corr = fi.get('decay_ratio_corrected', float('nan'))
+    if fi.get('correction_applied') and not (isinstance(_corr, float) and math.isnan(_corr)):
+        fi_score['decay_ratio'] = fi['decay_ratio_corrected']
+        fi_score['decay_pct']   = fi['decay_pct_corrected']
+
+    # [20] decay_v depuis ratio corrigé SCI-3 (pas depuis Q1/Q4 bruts)
+    # Évite le faux NEGATIVE_SPLIT sur profils BVT/TDS (descente finale gonfle Q4)
+    _decay_ratio_for_drift = fi_score.get('decay_ratio', 1.0)
+    if _decay_ratio_for_drift is None or (
+        isinstance(_decay_ratio_for_drift, float) and
+        math.isnan(_decay_ratio_for_drift)
+    ):
+        _decay_ratio_for_drift = 1.0
+    _decay_v_app = _decay_ratio_for_drift - 1.0
+
     drift    = cardiac_drift(df,
                    duration_s=info['total_time_s'],
                    dp_per_km=_dp_per_km,
@@ -623,15 +688,41 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
         'decay_v': None,
     }
     hr_grade = hr_by_grade(df) if info['has_hr'] else None
-    # SCI-3 : utiliser decay_ratio_corrected pour le score si correction appliquée
-    fi_score = dict(fi)
-    _corr = fi.get('decay_ratio_corrected', float('nan'))
-    if fi.get('correction_applied') and not (isinstance(_corr, float) and math.isnan(_corr)):
-        fi_score['decay_ratio'] = fi['decay_ratio_corrected']
-        fi_score['decay_pct']   = fi['decay_pct_corrected']
     recs     = generate_coach_recommendations(profile, fi_score, drift, cad_an, info, fcmax)
     perf     = compute_performance_score(fi_score, drift, dp_per_km=_dp_per_km)
     verdict  = compute_verdict(fi_score, drift, perf)
+
+    # Mode debug — accessible via ?debug=1 dans l'URL
+    # Invisible pour les athlètes en usage normal
+    if st.query_params.get("debug") == "1":
+        with st.expander("🔧 DEBUG — valeurs intermédiaires", expanded=True):
+            st.markdown(
+                '<div style="font-family:\'DM Mono\',monospace;'
+                'font-size:0.65rem;color:#41C8E8;">// DEBUG MODE //</div>',
+                unsafe_allow_html=True
+            )
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                st.json({
+                    'decay_ratio':           fi.get('decay_ratio'),
+                    'decay_ratio_corrected': fi.get('decay_ratio_corrected'),
+                    'decay_pct':             fi.get('decay_pct'),
+                    'correction_applied':    fi.get('correction_applied'),
+                    'elev_profile':          fi.get('elev_profile', {}).get('profile'),
+                    '_decay_v_app':          round(_decay_v_app, 4),
+                })
+            with col_d2:
+                st.json({
+                    'drift_pattern':   drift.get('pattern'),
+                    'fc_slope_bph':    drift.get('fc_slope_bph'),
+                    'drift_pct':       drift.get('drift_pct'),
+                    'score':           perf.get('score'),
+                    'score_gap':       perf.get('score_gap'),
+                    'score_ef':        perf.get('score_ef'),
+                    'score_var':       perf.get('score_var'),
+                    'verdict_code':    verdict.get('code'),
+                    'zone':            perf.get('weights_meta', {}).get('zone'),
+                })
 
     # ══ KAI UX — SÉQUENCE ABOVE THE FOLD ═══════════════════════════
     # Ordre : 1) Titre + badge  2) Verdict + Score fusionnés
@@ -725,8 +816,17 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
 
     _warnings = []
     if not info['has_hr']:
-        _warnings.append(('crit', '⚠ FC ABSENTE',
-            'Fréquence cardiaque non disponible — score et découplage cardiaque non calculés.'))
+        _hr_cov = info.get('hr_coverage_pct', 0)
+        if _hr_cov > 0:
+            _warnings.append(('warn', '▲ FC INSUFFISANTE',
+                f'Fréquence cardiaque présente sur {_hr_cov}% des points '
+                f'(seuil minimum : 30%) — analyse cardiaque non calculée. '
+                "Exporte depuis Garmin Connect ou Polar Flow "
+                "(Strava supprime la FC à l'export)."))
+        else:
+            _warnings.append(('crit', '⚠ FC ABSENTE',
+                'Fréquence cardiaque non disponible — score et '
+                'découplage cardiaque non calculés.'))
     if not info['has_cad']:
         _warnings.append(('info', '◆ CADENCE ABSENTE',
             'Cadence non enregistrée — les recommandations liées à la foulée ne sont pas disponibles.'))
@@ -745,6 +845,16 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     if len(df) < 10 or info.get('distance_km', 1) < 1:
         _warnings.append(('warn', '▲ FICHIER COURT',
             'Fichier trop court pour une analyse fiable — moins de 10 points GPS ou moins de 1 km.'))
+    if info.get('timestamps_estimated'):
+        _warnings.append(('crit', '⚠ TIMESTAMPS ESTIMÉS',
+            "Les horodatages GPS sont absents ou incomplets — "
+            "les données temporelles (allure, dérive cardiaque) "
+            "sont estimées et peuvent être inexactes. "
+            "Vérifie les paramètres d'enregistrement de ta montre."))
+    if info.get('elevation_degraded'):
+        _warnings.append(('warn', '▲ LISSAGE GPS DÉGRADÉ',
+            "Lissage d'élévation incomplet — D+/D- et GAP peuvent "
+            'être approximatifs sur ce fichier.'))
 
     if _warnings:
         _warn_colors = {
@@ -1402,16 +1512,13 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     # ══ SECTION 7 : PDF ═════════════════════════════════════════
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">FEUILLE DE ROUTE TACTIQUE</div>', unsafe_allow_html=True)
-    lc1, lc2 = st.columns([3, 1])
-    with lc1:
-        email = st.text_input(
-            "Recevoir mes futurs plans par email (optionnel)",
-            placeholder="ton@email.com",
-            key="email_input",
-        )
-    with lc2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("▲  GENERER LE PDF"):
+    email = st.text_input(
+        "Recevoir mes futurs plans par email (optionnel)",
+        placeholder="ton@email.com",
+        key="email_input",
+    )
+    if st.button("▲  GENERER LE PDF"):
+        try:
             with st.spinner("Génération du rapport..."):
                 pdf_bytes = generate_pdf(
                     info, fi, flat_v, profile, grade_df,
@@ -1423,6 +1530,11 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
             st.download_button(
                 "⬇  TELECHARGER LE RAPPORT", data=pdf_bytes,
                 file_name=fname, mime="application/pdf",
+            )
+        except Exception:
+            st.error(
+                "La génération du rapport a échoué. "
+                "Réessaie ou contacte le support si le problème persiste."
             )
 
     # ── Feedback beta — toujours visible sous la section PDF ────

@@ -1,7 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
 ║         VERTEX — test_engine.py                                  ║
-║         Suite de tests automatisés · Sprint 4B                   ║
+║         Suite de tests automatisés                              ║
 ╚══════════════════════════════════════════════════════════════════╝
 
 Couverture :
@@ -51,7 +51,12 @@ from engine import (
     get_score_weights,
     detect_elevation_profile,
     apply_decay_correction,
+    flat_pace_estimate,
+    grade_pace_profile,
+    hr_by_grade,
+    compute_km_splits,
 )
+from gpx_parser import haversine_vec, extract_race_info
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -1602,6 +1607,415 @@ r = _cv({'decay_ratio': 0.92, 'decay_pct': 8.0},
 test("S10 · V2 DRIFT-CARDIO → action_line présente et différenciée",
      r['code'] == 'V2' and _has_action(r),
      f"code={r['code']} action='{r.get('action_line','MISSING')[:50]}'")
+
+
+# ══════════════════════════════════════════════════════════════════
+# SECTION T — flat_pace_estimate()
+# ══════════════════════════════════════════════════════════════════
+
+print("\n── Section T : flat_pace_estimate ──")
+
+def _flat_df(n=50, grade=0.0, vel=3.0):
+    return pd.DataFrame({'grade': [grade]*n, 'velocity': [vel]*n})
+
+# T1 : retourne un float
+test("T1 · flat_pace_estimate → retourne float",
+     isinstance(flat_pace_estimate(_flat_df()), float),
+     "")
+
+# T2 : valeur positive
+_t2 = flat_pace_estimate(_flat_df())
+test("T2 · flat_pace_estimate → valeur > 0",
+     _t2 > 0,
+     f"res={_t2:.3f}")
+
+# T3 : fallback médiane si moins de 10 points plats (pente forte partout)
+_steep = pd.DataFrame({'grade': [30.0]*20, 'velocity': [1.5]*20})
+_t3 = flat_pace_estimate(_steep)
+test("T3 · flat_pace_estimate → fallback médiane (aucun point plat)",
+     isinstance(_t3, float) and _t3 > 0,
+     f"res={_t3:.3f}")
+
+# T4 : valeur dans ordre de grandeur cohérent avec la vitesse input
+_t4 = flat_pace_estimate(_flat_df(vel=4.0))
+test("T4 · flat_pace_estimate — entre 1 et 8 m/s",
+     1.0 < _t4 < 8.0,
+     f"res={_t4:.3f}")
+
+
+# ══════════════════════════════════════════════════════════════════
+# SECTION U — grade_pace_profile()
+# ══════════════════════════════════════════════════════════════════
+
+print("\n── Section U : grade_pace_profile ──")
+
+def _grade_pace_df():
+    grades = [0.0]*40 + [7.0]*30 + [12.0]*20 + [20.0]*10
+    vels   = [3.5]*40 + [2.0]*30 + [1.5]*20 + [1.0]*10
+    return pd.DataFrame({'grade': grades, 'velocity': vels})
+
+_u = grade_pace_profile(_grade_pace_df())
+
+# U1 : retourne un DataFrame
+test("U1 · grade_pace_profile → retourne DataFrame",
+     isinstance(_u, pd.DataFrame),
+     f"type={type(_u)}")
+
+# U2 : colonnes attendues
+_u_expected_cols = {'Tranche pente', 'Vitesse (m/s)', 'Allure (min/km)'}
+test("U2 · grade_pace_profile → colonnes correctes",
+     _u_expected_cols.issubset(set(_u.columns)),
+     f"cols={list(_u.columns)}")
+
+# U3 : au moins 1 ligne pour données multi-pentes
+test("U3 · grade_pace_profile → au moins 1 ligne",
+     len(_u) >= 1,
+     f"len={len(_u)}")
+
+# U4 : DataFrame vide si toute velocity ≤ 0.3
+_u4 = grade_pace_profile(pd.DataFrame({'grade': [5.0]*20, 'velocity': [0.1]*20}))
+test("U4 · grade_pace_profile → vide si velocity≤0.3 partout",
+     len(_u4) == 0,
+     f"len={len(_u4)}")
+
+
+# ══════════════════════════════════════════════════════════════════
+# SECTION V — hr_by_grade()
+# ══════════════════════════════════════════════════════════════════
+
+print("\n── Section V : hr_by_grade ──")
+
+def _hr_grade_df(n_per_bin=50):
+    rows = []
+    for g in range(-15, 20, 5):
+        for _ in range(n_per_bin):
+            rows.append({'grade': float(g + 2), 'hr': 140.0, 'velocity': 2.0})
+    return pd.DataFrame(rows)
+
+_v = hr_by_grade(_hr_grade_df())
+
+# V1 : retourne un DataFrame
+test("V1 · hr_by_grade → retourne DataFrame",
+     isinstance(_v, pd.DataFrame),
+     f"type={type(_v)}")
+
+# V2 : vide si hr ≤ 80 partout
+_v2 = hr_by_grade(pd.DataFrame({'grade': [5.0]*100, 'hr': [60.0]*100, 'velocity': [2.0]*100}))
+test("V2 · hr_by_grade → vide si hr≤80 partout",
+     len(_v2) == 0,
+     f"len={len(_v2)}")
+
+# V3 : filtre les bins avec n ≤ 30
+_v3 = hr_by_grade(pd.DataFrame({'grade': [5.0]*15, 'hr': [140.0]*15, 'velocity': [2.0]*15}))
+test("V3 · hr_by_grade → filtre bins n≤30",
+     len(_v3) == 0,
+     f"len={len(_v3)}")
+
+# V4 : colonnes hr_mean et n présentes
+test("V4 · hr_by_grade → colonnes hr_mean et n présentes",
+     'hr_mean' in _v.columns and 'n' in _v.columns,
+     f"cols={list(_v.columns)}")
+
+
+# ══════════════════════════════════════════════════════════════════
+# SECTION W — haversine_vec()
+# ══════════════════════════════════════════════════════════════════
+
+print("\n── Section W : haversine_vec ──")
+
+_w_lat = np.array([48.85, 48.86, 48.87])
+_w_lon = np.array([2.35,  2.35,  2.35])
+_w = haversine_vec(_w_lat, _w_lon)
+
+# W1 : premier élément toujours 0.0
+test("W1 · haversine_vec → premier élément = 0.0",
+     _w[0] == 0.0,
+     f"w[0]={_w[0]}")
+
+# W2 : longueur = longueur input
+test("W2 · haversine_vec → len(output) = len(input)",
+     len(_w) == len(_w_lat),
+     f"len={len(_w)}")
+
+# W3 : deux points identiques consécutifs → distance = 0
+_w3 = haversine_vec(np.array([48.0, 48.0]), np.array([2.0, 2.0]))
+test("W3 · haversine_vec → même point consécutif → dist=0",
+     _w3[1] == 0.0,
+     f"dist={_w3[1]}")
+
+# W4 : 1 degré latitude à l'équateur ≈ 111 194 m (±2 km)
+_w4 = haversine_vec(np.array([0.0, 1.0]), np.array([0.0, 0.0]))[1]
+test("W4 · haversine_vec — 1° lat équateur ≈ 111 194 m (±2 km)",
+     abs(_w4 - 111194) < 2000,
+     f"d={_w4:.0f} m")
+
+
+# ══════════════════════════════════════════════════════════════════
+# SECTION X — extract_race_info()
+# ══════════════════════════════════════════════════════════════════
+
+print("\n── Section X : extract_race_info ──")
+
+def _race_info_df(n=200, with_hr=True, estimated=False, degraded=False):
+    dist   = np.linspace(0, 5000, n)
+    time_s = np.linspace(0, 1800, n)
+    ele    = 100 + np.linspace(0, 50, n)
+    dz     = np.concatenate([[0.0], np.diff(ele)])
+    vel    = np.full(n, 2.5)
+    hr     = np.full(n, 150.0) if with_hr else np.full(n, np.nan)
+    cad    = np.full(n, 170.0)
+    return pd.DataFrame({
+        'distance': dist, 'time_s': time_s,
+        'elevation': ele, 'dz': dz,
+        'velocity': vel, 'hr': hr, 'cadence': cad,
+        'elevation_degraded':   [degraded]*n,
+        'timestamps_estimated': [estimated]*n,
+    })
+
+_x = extract_race_info(_race_info_df(), 'test_race.gpx')
+
+# X1 : clés obligatoires présentes
+_x_required = {'name', 'distance_km', 'total_time_s', 'elevation_gain',
+                'elevation_loss', 'has_hr', 'hr_coverage_pct',
+                'timestamps_estimated', 'elevation_degraded'}
+test("X1 · extract_race_info → clés obligatoires présentes",
+     _x_required.issubset(set(_x.keys())),
+     f"manquantes={_x_required - set(_x.keys())}")
+
+# X2 : distance_km correcte (≈ 5.0 km)
+test("X2 · extract_race_info → distance_km ≈ 5.0",
+     abs(_x['distance_km'] - 5.0) < 0.1,
+     f"dist={_x['distance_km']:.2f}")
+
+# X3 : has_hr = False sans FC
+_x3 = extract_race_info(_race_info_df(with_hr=False), 'no_hr.gpx')
+test("X3 · extract_race_info → has_hr=False sans FC",
+     _x3['has_hr'] == False,
+     f"has_hr={_x3['has_hr']}")
+
+# X4 : has_hr = True avec FC
+test("X4 · extract_race_info → has_hr=True avec FC",
+     _x['has_hr'] == True,
+     f"has_hr={_x['has_hr']}")
+
+# X5 : timestamps_estimated propagé
+_x5 = extract_race_info(_race_info_df(estimated=True), 'estimated.gpx')
+test("X5 · extract_race_info → timestamps_estimated propagé",
+     _x5['timestamps_estimated'] == True,
+     f"ts_est={_x5['timestamps_estimated']}")
+
+# X6 : elevation_degraded propagé
+_x6 = extract_race_info(_race_info_df(degraded=True), 'degraded.gpx')
+test("X6 · extract_race_info → elevation_degraded propagé",
+     _x6['elevation_degraded'] == True,
+     f"ele_deg={_x6['elevation_degraded']}")
+
+
+# ══════════════════════════════════════════════════════════════════
+# SECTION Y — compute_km_splits()
+# ══════════════════════════════════════════════════════════════════
+
+print("\n── Section Y : compute_km_splits ──")
+
+def _splits_df(km=3):
+    n    = km * 100
+    dist = np.linspace(0, km * 1000, n)
+    ts   = np.linspace(0, km * 360, n)   # 6 min/km
+    return pd.DataFrame({
+        'distance': dist, 'time_s': ts,
+        'dz':       np.zeros(n), 'grade': np.zeros(n),
+        'hr':       np.full(n, 145.0),
+        'cadence':  np.full(n, 175.0),
+    })
+
+# Y1 : liste vide si distance < 1 km
+_y1_df = pd.DataFrame({
+    'distance': np.linspace(0, 500, 50), 'time_s': np.linspace(0, 180, 50),
+    'dz': np.zeros(50), 'grade': np.zeros(50),
+    'hr': np.full(50, 145.0), 'cadence': np.full(50, 175.0),
+})
+test("Y1 · compute_km_splits → vide si dist < 1 km",
+     compute_km_splits(_y1_df) == [],
+     f"res={compute_km_splits(_y1_df)}")
+
+# Y2 : 1 split pour exactement 1 km
+test("Y2 · compute_km_splits → 1 split pour 1 km",
+     len(compute_km_splits(_splits_df(km=1))) == 1,
+     f"len={len(compute_km_splits(_splits_df(km=1)))}")
+
+# Y3 : champ 'km' commence à 1, dernier = n_km
+_y3 = compute_km_splits(_splits_df(km=3))
+test("Y3 · compute_km_splits → km 1→3 pour 3 km",
+     _y3[0]['km'] == 1 and _y3[-1]['km'] == 3,
+     f"kms={[s['km'] for s in _y3]}")
+
+# Y4 : pace_s positif
+test("Y4 · compute_km_splits → pace_s > 0",
+     all(s['pace_s'] > 0 for s in _y3 if s['pace_s'] is not None),
+     f"paces={[s['pace_s'] for s in _y3]}")
+
+# Y5 : champ 'has_walk' présent dans chaque split
+test("Y5 · compute_km_splits → has_walk présent dans chaque split",
+     all('has_walk' in s for s in _y3),
+     "")
+
+
+# ══════════════════════════════════════════════════════════════════
+# SECTION Z — CAS LIMITES CRITIQUES
+# ══════════════════════════════════════════════════════════════════
+
+print("\n── Section Z : cas limites critiques ──")
+
+# Helper NaN/None — évite crash si la valeur est None
+def _isnan_z(v):
+    return v is None or (isinstance(v, float) and math.isnan(v))
+
+def make_minimal_df(n=2, velocity=0.0, grade=0.0, hr=None, cadence=None):
+    """DataFrame minimal pour tests cas limites."""
+    d = {
+        'time_s':    np.linspace(0, max(n - 1, 1), n),
+        'distance':  np.linspace(0, max(n - 1, 1) * velocity, n),
+        'velocity':  np.full(n, velocity),
+        'grade':     np.full(n, grade),
+        'dz':        np.zeros(n),
+        'elevation': np.linspace(100, 100 + n, n),
+        'gap_flag':  np.zeros(n, dtype=bool),
+        'is_walk':   np.zeros(n, dtype=bool),
+    }
+    d['hr']      = np.full(n, float(hr))      if hr      is not None else np.full(n, np.nan)
+    d['cadence'] = np.full(n, float(cadence)) if cadence is not None else np.full(n, np.nan)
+    return pd.DataFrame(d)
+
+
+# Z1 : 1 seul point GPS → fatigue_index retourne NaN sans crash
+try:
+    fi_z1 = fatigue_index(make_minimal_df(n=1, velocity=3.0, hr=150))
+    test("Z1 · 1 point GPS : fatigue_index retourne NaN sans crash",
+         _isnan_z(fi_z1['decay_ratio']),
+         f"decay_ratio={fi_z1['decay_ratio']}")
+except Exception as e:
+    test("Z1 · 1 point GPS : fatigue_index retourne NaN sans crash",
+         False, str(e))
+
+
+# Z2 : FC constante (capteur bloqué) → pas de COLLAPSE ni DRIFT-CARDIO
+_z2 = cardiac_drift(make_flat_df(200, fc_start=155, fc_end=155,
+                                  velocity=3.0, duration_min=40))
+test("Z2 · FC constante (capteur bloqué) : pas de COLLAPSE ni DRIFT-CARDIO",
+     _z2['pattern'] not in ('COLLAPSE', 'DRIFT-CARDIO'),
+     f"pattern={_z2['pattern']}, fc_slope={_z2.get('fc_slope_bph')}")
+
+
+# Z3 : 100% marche (velocity ≤ 0.2) → decay_ratio NaN sans crash
+try:
+    fi_z3 = fatigue_index(make_minimal_df(n=200, velocity=0.2, hr=130))
+    test("Z3 · 100% marche (velocity≤0.2) : decay_ratio NaN sans crash",
+         _isnan_z(fi_z3['decay_ratio']),
+         f"decay_ratio={fi_z3['decay_ratio']}")
+except Exception as e:
+    test("Z3 · 100% marche (velocity≤0.2) : decay_ratio NaN sans crash",
+         False, str(e))
+
+
+# Z4 : timestamps non ordonnés → fatigue_index ne crashe pas
+_n_z4 = 100
+_t_z4 = np.random.permutation(np.linspace(0, 3600, _n_z4))
+_df_z4 = pd.DataFrame({
+    'time_s':    _t_z4,
+    'distance':  np.linspace(0, 10000, _n_z4),
+    'velocity':  np.full(_n_z4, 3.0),
+    'grade':     np.zeros(_n_z4),
+    'dz':        np.zeros(_n_z4),
+    'hr':        np.full(_n_z4, 155.0),
+    'cadence':   np.full(_n_z4, 175.0),
+    'gap_flag':  np.zeros(_n_z4, dtype=bool),
+    'is_walk':   np.zeros(_n_z4, dtype=bool),
+    'elevation': np.linspace(100, 200, _n_z4),
+})
+try:
+    fi_z4 = fatigue_index(_df_z4)
+    test("Z4 · timestamps non ordonnés : pas de crash",
+         True, f"decay_ratio={fi_z4.get('decay_ratio')}")
+except Exception as e:
+    test("Z4 · timestamps non ordonnés : pas de crash",
+         False, str(e))
+
+
+# Z5 : D+ = 0 (piste plate) → compute_performance_score sans crash
+_n_z5 = 200
+_df_z5 = pd.DataFrame({
+    'time_s':    np.linspace(0, 3600, _n_z5),
+    'distance':  np.linspace(0, 10000, _n_z5),
+    'velocity':  np.full(_n_z5, 2.78),
+    'grade':     np.zeros(_n_z5),
+    'dz':        np.zeros(_n_z5),
+    'hr':        np.full(_n_z5, 150.0),
+    'cadence':   np.full(_n_z5, 175.0),
+    'gap_flag':  np.zeros(_n_z5, dtype=bool),
+    'is_walk':   np.zeros(_n_z5, dtype=bool),
+    'elevation': np.full(_n_z5, 100.0),
+})
+try:
+    fi_z5    = fatigue_index(_df_z5)
+    drift_z5 = cardiac_drift(_df_z5, duration_s=3600, dp_per_km=0.0)
+    perf_z5  = compute_performance_score(fi_z5, drift_z5, dp_per_km=0.0)
+    test("Z5 · D+=0 (piste plate) : score calculé sans crash",
+         isinstance(perf_z5['score'], (int, float)) and not _isnan_z(perf_z5['score']),
+         f"score={perf_z5['score']}")
+except Exception as e:
+    test("Z5 · D+=0 (piste plate) : score calculé sans crash",
+         False, str(e))
+
+
+# Z6 : FCmax = 220 → compute_hr_zones retourne zones monotones sans crash
+_n_z6 = 100
+_df_z6 = pd.DataFrame({
+    'time_s': np.linspace(0, 3600, _n_z6),
+    'hr':     np.full(_n_z6, 170.0),
+})
+_df_z6['dt'] = _df_z6['time_s'].diff().fillna(0)
+try:
+    _zones_z6  = compute_hr_zones(_df_z6, fcmax=220)
+    _bpm_z6    = _zones_z6['bpm']
+    _bounds_z6 = [_bpm_z6[z][0] for z in ['Z1', 'Z2', 'Z3', 'Z4', 'Z5']]
+    test("Z6 · FCmax=220 : zones monotones sans crash",
+         all(_bounds_z6[i] <= _bounds_z6[i + 1] for i in range(len(_bounds_z6) - 1)),
+         f"bounds={_bounds_z6}")
+except Exception as e:
+    test("Z6 · FCmax=220 : zones monotones sans crash",
+         False, str(e))
+
+
+# Z7 : course 30 secondes → fatigue_index NaN + cardiac_drift insufficient
+_df_z7 = make_minimal_df(n=10, velocity=3.0, hr=155)
+_df_z7['time_s'] = np.linspace(0, 30, 10)
+try:
+    fi_z7    = fatigue_index(_df_z7)
+    drift_z7 = cardiac_drift(_df_z7, duration_s=30, dp_per_km=0.0)
+    test("Z7 · course 30s : fatigue_index decay_ratio NaN",
+         _isnan_z(fi_z7['decay_ratio']),
+         f"decay_ratio={fi_z7['decay_ratio']}")
+    test("Z7b · course 30s : cardiac_drift insufficient_data=True",
+         drift_z7['insufficient_data'] == True,
+         f"insufficient={drift_z7['insufficient_data']}")
+except Exception as e:
+    test("Z7 · course 30s : pas de crash",
+         False, str(e))
+
+
+# Z8 : decay_v=None → fallback 0.0, pattern valide retourné
+_df_z8 = make_flat_df(200, fc_start=150, fc_end=158, velocity=3.0, duration_min=40)
+try:
+    _r_z8 = cardiac_drift(_df_z8, duration_s=3600, dp_per_km=5.0, decay_v=None)
+    test("Z8 · decay_v=None : pattern valide sans crash",
+         _r_z8['pattern'] is not None and _r_z8['insufficient_data'] == False,
+         f"pattern={_r_z8['pattern']}, decay_v={_r_z8.get('decay_v')}")
+    test("Z8b · decay_v=None : decay_v retourné = 0.0",
+         _r_z8.get('decay_v') == 0.0,
+         f"decay_v={_r_z8.get('decay_v')}")
+except Exception as e:
+    test("Z8 · decay_v=None : pas de crash",
+         False, str(e))
 
 
 # ══════════════════════════════════════════════════════════════════
