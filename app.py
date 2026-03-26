@@ -29,6 +29,11 @@ from tcx_parser import parse_tcx as _parse_tcx
 def parse_tcx_cached(file_bytes: bytes):
     return _parse_tcx(file_bytes)
 
+from fit_parser import parse_fit as _parse_fit
+@st.cache_data(show_spinner=False)
+def parse_fit_cached(file_bytes: bytes):
+    return _parse_fit(file_bytes)
+
 from engine import (
     fatigue_index, flat_pace_estimate, grade_pace_profile,
     classify_profile, compute_hr_zones, cardiac_drift,
@@ -478,9 +483,9 @@ def render_landing():
         st.markdown("<br>", unsafe_allow_html=True)
 
         uploaded = st.file_uploader(
-            "IMPORTER UN FICHIER GPX / TCX",
-            type=["gpx", "tcx"],
-            help="Garmin Connect → Exporter l'original · Polar → Export TCX",
+            "IMPORTER UN FICHIER GPX / TCX / FIT",
+            type=["gpx", "tcx", "fit"],
+            help="Garmin Connect → Exporter l'original · Polar → Export TCX · Suunto → Export FIT",
             label_visibility="visible",
         )
         if uploaded:
@@ -526,7 +531,7 @@ def render_landing():
     <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:#1A2A35;text-align:center;letter-spacing:0.1em;">
     EXPORT GPX AVEC FC : Garmin Connect → Activité → ··· → Exporter l'original &nbsp;|&nbsp;
     Polar → Flow → Activité → Exporter TCX &nbsp;|&nbsp;
-    Strava → utiliser Garmin Connect directement (Strava supprime la FC à l'export GPX)
+    Suunto → App Suunto → Activité → Exporter FIT  |  Strava → utiliser Garmin Connect directement
     </div>
     """, unsafe_allow_html=True)
 
@@ -549,11 +554,14 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     )
 
     ext = filename.lower().split('.')[-1]
-    spinner_label = "Analyse du fichier TCX..." if ext == 'tcx' else "Analyse du fichier GPX..."
+    spinner_labels = {'tcx': "Analyse du fichier TCX...", 'fit': "Analyse du fichier FIT..."}
+    spinner_label = spinner_labels.get(ext, "Analyse du fichier GPX...")
     with st.spinner(spinner_label):
         try:
             if ext == 'tcx':
                 df = parse_tcx_cached(gpx_bytes)
+            elif ext == 'fit':
+                df = parse_fit_cached(gpx_bytes)
             else:
                 df = parse_gpx(gpx_bytes)
         except ValueError as e:
