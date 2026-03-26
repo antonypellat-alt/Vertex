@@ -2019,6 +2019,21 @@ except Exception as e:
 
 
 # ══════════════════════════════════════════════════════════════════
+# K — FIT PARSER
+# ══════════════════════════════════════════════════════════════════
+section("K — fit_parser.parse_fit()")
+try:
+    from fit_parser import parse_fit
+    _fit_available = True
+except ImportError as _fit_err:
+    _fit_available = False
+test("K1 · FIT : import réussi", _fit_available,
+     "fitparse installé" if _fit_available else f"fit_parser absent — {_fit_err}")
+# Note : test K2+ nécessite un vrai fichier .fit (binaire)
+# Validation fonctionnelle à faire avec le fichier réel d'Adrien
+
+
+# ══════════════════════════════════════════════════════════════════
 # RAPPORT FINAL
 # ══════════════════════════════════════════════════════════════════
 
