@@ -342,6 +342,7 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
             self.rect(0, 0, 4, 297, 'F')
 
     pdf = VertexPDF()
+    pdf.set_compression(False)
     pdf.set_auto_page_break(auto=True, margin=12)
 
     # ── Helpers ─────────────────────────────────────────────────────
@@ -430,6 +431,17 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         pdf.set_font("Courier", "", 5)
         pdf.set_text_color(*C_DIM)
         pdf.cell(32, 4, clean("/ 100"), border=0, align="L", ln=False)
+        # Ligne contextuelle sous le score
+        if _score >= 80:
+            _ctx_label, _ctx_color = "course parfaitement maitrisee", C_CYAN
+        elif _score >= 60:
+            _ctx_label, _ctx_color = "marge de progression", C_AMBER
+        else:
+            _ctx_label, _ctx_color = "effort au-dessus du seuil", C_RED
+        pdf.set_xy(15, 49)
+        pdf.set_font("Courier", "", 5)
+        pdf.set_text_color(*_ctx_color)
+        pdf.cell(32, 4, clean(_ctx_label), border=0, align="L")
 
     # Bloc droite du score : verdict code + label + sub
     _hero_x = 50 if _score is not None else 15
@@ -464,9 +476,14 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     d_plus = int(info.get('elevation_gain', 0))
 
     cap_y = int(pdf.get_y()) + 2  # suit le nom de course, jamais de collision
-    capsule(15,  cap_y, 52, "DISTANCE",   f"{dist_km:.1f} km",        C_CYAN)
-    capsule(70,  cap_y, 52, "D+",          f"{d_plus} m",              C_AMBER)
-    capsule(125, cap_y, 52, "TEMPS",       f"{h_t}h{m_t:02d}",        C_MID)
+    if info.get('has_hr') and info.get('hr_mean') is not None:
+        capsule(15,  cap_y, 52, "FC MOY",     f"{int(info['hr_mean'])} bpm",                            C_CYAN)
+        capsule(70,  cap_y, 52, "ALLURE GAP", (v_to_pace(flat_v) if flat_v else '--:--') + "/km",       C_AMBER)
+        capsule(125, cap_y, 52, "D+",          f"{d_plus} m",                                           C_MID)
+    else:
+        capsule(15,  cap_y, 52, "DISTANCE",   f"{dist_km:.1f} km",                                     C_CYAN)
+        capsule(70,  cap_y, 52, "ALLURE MOY", v_to_pace(info.get('avg_velocity_ms', 0)) + "/km",       C_AMBER)
+        capsule(125, cap_y, 52, "D+",          f"{d_plus} m",                                           C_MID)
 
     # Profil + allure plat
     pdf.set_xy(15, cap_y + 17)
@@ -474,7 +491,7 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     pdf.set_text_color(*C_DIM)
     avg_pace = v_to_pace(info.get('avg_velocity_ms', 0))
     flat_pace = v_to_pace(flat_v) if flat_v else '--:--'
-    pdf.cell(0, 4, clean(f"{profile}  |  Allure moy : {avg_pace}/km  |  Allure plat : {flat_pace}/km"), ln=True)
+    pdf.cell(0, 4, clean(f"{profile}  |  Allure moy : {avg_pace}/km  |  Allure plat : {flat_pace}/km  |  Temps : {h_t}h{m_t:02d}"), ln=True)
 
     if info.get('hr_mean'):
         pdf.set_font("Courier", "", 6)
@@ -490,6 +507,54 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     pdf.set_line_width(0.3)
     pdf.line(15, _sep_y, 195, _sep_y)
     pdf.ln(3)
+
+    # ── BLOC CE QUE TU DOIS RETENIR ──────────────────────────────
+    _action_line = verdict.get('action_line', '') if verdict else ''
+    _action_valid = bool(_action_line and len(_action_line) > 20)
+    _rec0_valid   = len(recs) > 0
+
+    if _action_valid or _rec0_valid:
+        base_h = 8
+        if _action_valid:
+            base_h += 8
+        if _rec0_valid:
+            base_h += 14
+
+        _block_y = pdf.get_y()
+        pdf.set_fill_color(*C_BG2)
+        pdf.rect(15, _block_y, 180, base_h, 'F')
+        pdf.set_draw_color(*_vcolor)
+        pdf.set_line_width(1.5)
+        pdf.line(15, _block_y, 15, _block_y + base_h)
+
+        pdf.set_xy(19, _block_y + 2)
+        pdf.set_font("Courier", "", 5)
+        pdf.set_text_color(*C_DIM)
+        pdf.cell(0, 4, clean("CE QUE TU DOIS RETENIR"), ln=True)
+
+        if _action_valid:
+            pdf.set_x(19)
+            pdf.set_font("Helvetica", "B", 9)
+            pdf.set_text_color(*_vcolor)
+            pdf.cell(0, 4, clean(f"-> {_action_line}"), ln=True)
+
+        if _rec0_valid:
+            rec0 = recs[0]
+            _badge_map = {'crit': ('*', C_RED), 'warn': ('!', C_AMBER), 'info': ('>', C_CYAN)}
+            _badge, _badge_c = _badge_map.get(rec0.get('level', 'info'), ('>', C_CYAN))
+            pdf.set_x(19)
+            pdf.set_font("Courier", "", 5)
+            pdf.set_text_color(*_badge_c)
+            pdf.cell(6, 4, clean(_badge), border=0)
+            pdf.set_font("Helvetica", "B", 8)
+            pdf.set_text_color(*C_WHITE)
+            pdf.cell(0, 4, clean(rec0.get('title', '')), ln=True)
+            pdf.set_x(19)
+            pdf.set_font("Helvetica", "", 7)
+            pdf.set_text_color(*C_MID)
+            pdf.multi_cell(174, 4, clean(rec0.get('body', '')))
+
+        pdf.ln(2)
 
     # ── SPLITS — tableau complet ──────────────────────────────────
     pdf.set_font("Courier", "", 6)
@@ -614,11 +679,25 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     pdf.ln(2)
 
 
+    # ── Footer page 1 ─────────────────────────────────────────────
+    pdf.set_xy(15, 285)
+    pdf.set_font("Courier", "", 5)
+    pdf.set_text_color(*C_DIM)
+    pdf.cell(85, 4, clean("Analyse algorithmique -- non validee cliniquement."), border=0)
+    pdf.cell(0, 4, clean("1/2"), border=0, align="R", ln=True)
+
     # ══════════════════════════════════════════════════════════════
-    # SUITE — ANALYSE GRAPHIQUE + RECOS (pagination automatique)
+    # PAGE 2 — ANALYSE GRAPHIQUE + RECOS
     # ══════════════════════════════════════════════════════════════
-    pdf.ln(4)
-    sep()
+    pdf.add_page()
+
+    # ── Rappel en-tête page 2 ─────────────────────────────────────
+    pdf.set_xy(15, 15)
+    pdf.set_font("Courier", "", 6)
+    pdf.set_text_color(*C_DIM)
+    _score_display = str(_score) if _score is not None else "--"
+    _recall = f"VERTEX  ·  {info.get('name','').upper()}  ·  Score {_score_display}/100  ·  {_vlabel}"
+    pdf.cell(0, 4, clean(_recall), ln=True)
     pdf.ln(2)
 
     # ── GAP QUARTILES — barres horizontales ───────────────────────
@@ -766,7 +845,12 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
                     pdf.set_text_color(*C_DIM)
                     pdf.cell(85, 4, clean(f"Efficacite cardiaque 1ere moitie : {ef1:.3f}"), border=0)
                     pdf.set_text_color(*d_col)
-                    pdf.cell(0, 4, clean(f"Efficacite cardiaque 2eme moitie : {ef2:.3f}  |  Baisse : {d_pct:.1f}%"), ln=True)
+                    if not _isnan(d_pct):
+                        _qualif = "(normal)" if d_pct > -4 else "(fatigue moderee)" if d_pct > -8 else "(signal fort)"
+                    else:
+                        _qualif = ""
+                    _qualif_str = f"  {_qualif}" if _qualif else ""
+                    pdf.cell(0, 4, clean(f"Efficacite cardiaque 2eme moitie : {ef2:.3f}  |  Baisse : {d_pct:.1f}%{_qualif_str}"), ln=True)
 
     elif _insuf:
         section("DECOUPLAGE CARDIAQUE")
@@ -836,45 +920,42 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
             clean("Score experimental -- modele GAP Minetti (2002) + decouplage cardiaque. Non valide cliniquement."),
             ln=True)
 
-    # ── RECOMMANDATIONS COACH — 2 max ────────────────────────────
-    section("RECOMMANDATIONS COACH")
+    # ── RECOMMANDATIONS COACH — recs[1:3] uniquement (rec[0] déjà en p1) ──
+    recs_p2 = recs[1:3]
+    if recs_p2:
+        section("RECOMMANDATIONS COACH")
 
-    level_colors = {'crit': C_RED, 'warn': C_AMBER, 'info': C_CYAN}
-    level_labels = {'crit': 'PRIORITAIRE', 'warn': 'ATTENTION', 'info': 'INFO'}
+        level_colors = {'crit': C_RED, 'warn': C_AMBER, 'info': C_CYAN}
+        level_labels = {'crit': 'PRIORITAIRE', 'warn': 'ATTENTION', 'info': 'INFO'}
 
-    for rec in recs[:2]:
-        col   = level_colors.get(rec.get('level', 'info'), C_CYAN)
-        label = level_labels.get(rec.get('level', 'info'), 'INFO')
+        for rec in recs_p2:
+            col   = level_colors.get(rec.get('level', 'info'), C_CYAN)
+            label = level_labels.get(rec.get('level', 'info'), 'INFO')
 
-        y_start = pdf.get_y()
+            y_start = pdf.get_y()
 
-        pdf.set_font("Courier", "", 7)
-        pdf.set_text_color(*col)
-        pdf.set_xy(19, y_start + 1)
-        pdf.cell(0, 4, clean(label), ln=True)
+            pdf.set_font("Courier", "", 7)
+            pdf.set_text_color(*col)
+            pdf.set_xy(19, y_start + 1)
+            pdf.cell(0, 4, clean(label), ln=True)
 
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.set_text_color(*C_WHITE)
-        pdf.set_x(19)
-        pdf.cell(0, 6, clean(rec.get('title', '')), ln=True)
+            pdf.set_font("Helvetica", "B", 7)
+            pdf.set_text_color(*C_WHITE)
+            pdf.set_x(19)
+            pdf.cell(0, 5, clean(rec.get('title', '')), ln=True)
 
-        pdf.set_font("Helvetica", "", 8)
-        pdf.set_text_color(*C_MID)
-        pdf.set_x(19)
-        pdf.multi_cell(168, 5, clean(rec.get('body', '')))
-        pdf.ln(2)
+            pdf.set_font("Helvetica", "", 6)
+            pdf.set_text_color(*C_MID)
+            pdf.set_x(19)
+            pdf.multi_cell(174, 4, clean(rec.get('body', '')))
+            pdf.ln(2)
 
-        # Barre latérale dynamique — hauteur calculée après le contenu
-        y_end = pdf.get_y()
-        bar_h = max(y_end - y_start, 4)
-        pdf.set_fill_color(*col)
-        pdf.rect(15, y_start, 2, bar_h, 'F')
-        pdf.ln(2)
-
-    if len(recs) > 2:
-        pdf.set_font("Courier", "", 6)
-        pdf.set_text_color(*C_DIM)
-        pdf.cell(0, 4, clean(f"+ {len(recs) - 2} recommandation(s) disponibles dans l'application."), ln=True)
+            # Barre latérale dynamique — hauteur calculée après le contenu
+            y_end = pdf.get_y()
+            bar_h = max(y_end - y_start, 4)
+            pdf.set_fill_color(*col)
+            pdf.rect(15, y_start, 2, bar_h, 'F')
+            pdf.ln(2)
 
     # ── Footer ────────────────────────────────────────────────────
     pdf.ln(2)
@@ -885,5 +966,11 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     if email:
         _footer += f"  |  {email}"
     pdf.cell(0, 3, clean(_footer), ln=True, align="C")
+
+    # ── Footer page 2 ─────────────────────────────────────────────
+    pdf.set_xy(15, 285)
+    pdf.set_font("Courier", "", 5)
+    pdf.set_text_color(*C_DIM)
+    pdf.cell(0, 4, clean("2/2"), border=0, align="R", ln=True)
 
     return bytes(pdf.output())

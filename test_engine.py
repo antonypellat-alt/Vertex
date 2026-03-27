@@ -986,7 +986,8 @@ except ImportError as _charts_err:
                "M2 · PDF sans FC (zones=None, verdict=None) → bytes non vides",
                "M3 · Phrase de partage S1 : label verdict présent dans le PDF",
                "M4 · Splits complets (tous les km) : km 1 et km 10 présents",
-               "M5 · PDF avec 3 recos → génère sans crash (2 affichées + mention)"]:
+               "M5 · PDF avec 3 recos → génère sans crash (rec#1 p1, rec#2-3 p2)",
+               "M6 · action_line > 20 chars → présente dans le PDF"]:
         test(_m, False, f"dépendances manquantes (plotly/fpdf2) — {_charts_err}")
 
 if _charts_available:
@@ -1101,11 +1102,26 @@ if _charts_available:
             _zones_base, _drift_base, _cad_base, [], _recs_base,
             190, _perf_base, _verdict_base, ''
         )
-        test("M5 · PDF avec 3 recos → génère sans crash (2 affichées + mention)",
+        test("M5 · PDF avec 3 recos → génère sans crash (rec#1 p1, rec#2-3 p2)",
              isinstance(result, bytes) and len(result) > 500,
              f"len={len(result)}")
     except Exception as e:
-        test("M5 · PDF avec 3 recos → génère sans crash", False, str(e))
+        test("M5 · PDF avec 3 recos → génère sans crash (rec#1 p1, rec#2-3 p2)", False, str(e))
+
+    # M6 — action_line > 20 chars → présente dans le PDF
+    verdict_with_action = {**_verdict_base,
+        'action_line': 'Reduis ton allure de depart de 10% sur les 3 premiers km.'}
+    try:
+        result = generate_pdf(
+            _info_base, _fi_base, 3.0, 'PROFIL ENDURANCE', _grade_df,
+            _zones_base, _drift_base, _cad_base, _splits_base, _recs_base,
+            190, _perf_base, verdict_with_action, ''
+        )
+        pdf_text = result.decode('latin-1', errors='ignore')
+        test("M6 · action_line > 20 chars → présente dans le PDF",
+             'Reduis ton allure' in pdf_text, "action_line non trouvée dans le binaire")
+    except Exception as e:
+        test("M6 · action_line > 20 chars → présente dans le PDF", False, str(e))
 
 
 
