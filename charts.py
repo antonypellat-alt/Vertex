@@ -736,7 +736,10 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         pdf.set_font("Helvetica", "", 7)
         pdf.set_text_color(*C_DIM)
         dr_str = f"{dr:.3f}" if not _isnan(dr) else "N/A"
-        dp_str = f"{dp:.1f}%" if not _isnan(dp) else "N/A"
+        if not _isnan(dp):
+            dp_str = f"+{dp:.1f}%" if dp >= 0 else f"{dp:.1f}%"
+        else:
+            dp_str = "N/A"
         pdf.cell(0, 4, clean(f"Tenue d'allure Q4/Q1 : {dr_str}   |   Perte de vitesse : {dp_str}"), ln=True)
     else:
         pdf.set_font("Helvetica", "", 7)
