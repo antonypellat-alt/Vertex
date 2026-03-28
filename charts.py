@@ -342,6 +342,8 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
             # Bande couleur verdict — persistante sur chaque page
             self.set_fill_color(*_vcolor)
             self.rect(0, 0, 4, 297, 'F')
+        def footer(self):
+            pass
 
     pdf = VertexPDF()
     pdf.set_compression(False)
@@ -662,28 +664,6 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         pdf.cell(30, 3, clean("o FC MAX"), border=0)
         pdf.ln()
 
-    # ── Phrase de partage — S1 ────────────────────────────────────
-    pdf.ln(4)
-    sep()
-    _share_score = _score
-    _race_name   = info.get('name', 'Course')
-    if _share_score is not None:
-        _share_line = f"{_race_name}  --  {_vlabel}  --  VERTEX Score {_share_score}/100"
-    else:
-        _share_line = f"{_race_name}  --  {_vlabel}"
-    pdf.ln(2)
-    pdf.set_font("Helvetica", "B", 8)
-    pdf.set_text_color(*C_CYAN)
-    pdf.multi_cell(0, 5, clean(_share_line), align="C")
-    if _vsub:
-        pdf.set_font("Helvetica", "", 6)
-        pdf.set_text_color(*C_MID)
-        _vsub_clean = clean(_vsub)
-        try:
-            pdf.multi_cell(0, 4, _vsub_clean, align="C")
-        except Exception:
-            pdf.cell(0, 4, _vsub_clean[:80], ln=True, align="C")
-    pdf.ln(2)
 
 
     # ── Footer page 1 ─────────────────────────────────────────────
