@@ -737,7 +737,7 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         pdf.set_text_color(*C_DIM)
         dr_str = f"{dr:.3f}" if not _isnan(dr) else "N/A"
         dp_str = f"{dp:.1f}%" if not _isnan(dp) else "N/A"
-        pdf.cell(0, 4, clean(f"Ratio Q4/Q1 : {dr_str}   |   Ecart GAP : {dp_str}"), ln=True)
+        pdf.cell(0, 4, clean(f"Tenue d'allure Q4/Q1 : {dr_str}   |   Perte de vitesse : {dp_str}"), ln=True)
     else:
         pdf.set_font("Helvetica", "", 7)
         pdf.set_text_color(*C_DIM)
@@ -793,7 +793,7 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     _insuf   = drift.get('insufficient_data', False)
 
     if not _insuf and _pattern:
-        section("DECOUPLAGE CARDIAQUE")
+        section("ANALYSE CARDIAQUE")
 
         if _pattern in ('COLLAPSE A', 'COLLAPSE B', 'COLLAPSE'):
             fc_q1 = drift.get('fc_q1_mean') or 0
@@ -824,10 +824,16 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
             if d_pct is not None:
                 d_col = C_RED if d_pct < -5 else C_AMBER if d_pct < -2 else C_CYAN
                 _pattern_labels = {
-                    'DRIFT':  'DÉRIVE CARDIAQUE',
-                    'STABLE': 'CARDIAQUE STABLE',
+                    'DRIFT':          'DERIVE CARDIAQUE',
+                    'STABLE':         'CARDIAQUE STABLE',
+                    'DRIFT-CARDIO':   'SURCHARGE CARDIO-METABOLIQUE',
+                    'DRIFT-NEURO':    'FATIGUE NEUROMUSCULAIRE',
+                    'NEGATIVE_SPLIT': 'GESTION EN PROGRESSION',
+                    'COLLAPSE A':     'SIGNAL CARDIAQUE ANORMAL',
+                    'COLLAPSE B':     'SIGNAL CARDIAQUE ANORMAL',
+                    'COLLAPSE':       'SIGNAL CARDIAQUE ANORMAL',
                 }
-                _plabel = _pattern_labels.get(_pattern, _pattern)
+                _plabel = _pattern_labels.get(_pattern, 'ANALYSE CARDIAQUE')
                 pdf.set_font("Helvetica", "B", 8)
                 pdf.set_text_color(*d_col)
                 pdf.cell(0, 5, clean(_plabel), ln=True)
@@ -843,17 +849,17 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
                     pdf.ln(7)
                     pdf.set_font("Helvetica", "", 7)
                     pdf.set_text_color(*C_DIM)
-                    pdf.cell(85, 4, clean(f"Efficacite cardiaque 1ere moitie : {ef1:.3f}"), border=0)
+                    pdf.cell(85, 4, clean(f"Rendement 1re moitie : {ef1:.3f}"), border=0)
                     pdf.set_text_color(*d_col)
                     if not _isnan(d_pct):
                         _qualif = "(normal)" if d_pct > -4 else "(fatigue moderee)" if d_pct > -8 else "(signal fort)"
                     else:
                         _qualif = ""
                     _qualif_str = f"  {_qualif}" if _qualif else ""
-                    pdf.cell(0, 4, clean(f"Efficacite cardiaque 2eme moitie : {ef2:.3f}  |  Baisse : {d_pct:.1f}%{_qualif_str}"), ln=True)
+                    pdf.cell(0, 4, clean(f"Rendement 2e moitie : {ef2:.3f}  |  Baisse : {d_pct:.1f}%{_qualif_str}"), ln=True)
 
     elif _insuf:
-        section("DECOUPLAGE CARDIAQUE")
+        section("ANALYSE CARDIAQUE")
         pdf.set_font("Helvetica", "", 7)
         pdf.set_text_color(*C_DIM)
         pdf.cell(0, 5, clean("Non calculable -- moins de 10 min de terrain plat sur ce parcours."), ln=True)
@@ -883,7 +889,7 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         weights = perf.get('weights', {})
         sub_data = [
             ("Regularite d'allure",   _score_gap, int(weights.get('gap', 0) * 100)),
-            ("Efficacite cardiaque", _score_ef,  int(weights.get('ef',  0) * 100)),
+            ("Rendement cardiaque",  _score_ef,  int(weights.get('ef',  0) * 100)),
             ("Regularite",           _score_var, int(weights.get('var', 0) * 100)),
         ]
         bar_x = 70
