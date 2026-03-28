@@ -712,7 +712,8 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         max_v = max(q_vals.values())
         bar_x = 55
         bar_w = 120
-        q_colors = [C_CYAN, C_CYAN, C_AMBER, C_RED]
+        _q4_col  = C_CYAN if (not _isnan(dr) and dr <= 1.0) else C_RED
+        q_colors = [C_CYAN, C_CYAN, C_AMBER, _q4_col]
 
         for i, (q_key, q_val) in enumerate(q_vals.items()):
             y_row = pdf.get_y()
