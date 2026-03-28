@@ -274,7 +274,7 @@ def clean(text: str) -> str:
     # compatibles latin-1 — NFKD les décompose et crée des combining chars
     # qui font planter multi_cell sur certaines versions FPDF2
     text = unicodedata.normalize("NFC", str(text))
-    text = text.replace("\u2014", "--").replace("\u2013", "-").replace("\u2019", "'")
+    text = text.replace("\u2014", "--").replace("\u2013", "-").replace("\u2019", "'").replace("\u2192", ">")
     return text.encode("latin-1", errors="replace").decode("latin-1")
 
 
@@ -311,12 +311,14 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         _vcolor = _HEX_RGB.get(verdict.get('color', ''), C_CYAN)
         _vlabel = verdict.get('label', 'ANALYSE INCOMPLETE')
         _vsub   = verdict.get('sub', '').replace('\u2014', '--').replace('\u2013', '-')
-        _vcode  = verdict.get('code', '')
+        _vcode    = verdict.get('code', '')
+        _vaction  = verdict.get('action_line', '').replace('\u2192', '>')
     else:
-        _vcolor = C_DIM
-        _vlabel = 'DONNEES INSUFFISANTES'
-        _vsub   = ''
-        _vcode  = '--'
+        _vcolor   = C_DIM
+        _vlabel   = 'DONNEES INSUFFISANTES'
+        _vsub     = ''
+        _vcode    = '--'
+        _vaction  = ''
 
     _score       = perf.get('score')       if perf else None
     _score_gap   = perf.get('score_gap')   if perf else None
@@ -501,6 +503,11 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
             f"  |  FCmax saisie : {fcmax} bpm"
         ), ln=True)
 
+    if _vaction:
+        pdf.ln(1)
+        pdf.set_font("Courier", "B", 7)
+        pdf.set_text_color(*_vcolor)
+        pdf.cell(0, 5, clean(_vaction), ln=True)
     pdf.ln(2)
     _sep_y = pdf.get_y()
     pdf.set_draw_color(*C_SEP)
