@@ -777,6 +777,13 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     elif _score >= 60: _score_color = '#C8A84B'
     else:              _score_color = '#C84850'
 
+    _share_html = (
+        f'<div style="width:100%;margin-top:12px;padding-top:10px;'
+        f'border-top:1px solid #152030;font-family:\'DM Mono\',monospace;'
+        f'font-size:0.62rem;color:#4A6070;letter-spacing:0.08em;font-style:italic;">'
+        f'{_share}</div>'
+    ) if _share else ''
+
     st.markdown(f"""
     <div class="verdict-mobile-stack"
          style="padding:20px 24px;background:#0D1620;
@@ -812,7 +819,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                 {"⚠ " + _p_reason if _partial else "/ 100"}
             </div>
         </div>
-        {'<div style="width:100%;margin-top:12px;padding-top:10px;border-top:1px solid #152030;font-family:\'DM Mono\',monospace;font-size:0.62rem;color:#4A6070;letter-spacing:0.08em;font-style:italic;">' + _share + '</div>' if _share else ''}
+        {_share_html}
     </div>""", unsafe_allow_html=True)
 
     # ── 2b. Ligne action immédiate — B1 Sprint 5 ────────────────
