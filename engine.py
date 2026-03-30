@@ -186,20 +186,36 @@ def get_collapse_thresholds(duration_s: float, dp_per_km: float) -> tuple:
         return (-3.0, -10.0)
 
 
+def get_drift_ef_threshold(duration_s: float) -> float:
+    """
+    SCI-4 — Seuil drift_ef adaptatif selon durée de course.
+    CDC Elena v1.5 — calibration Coyle 2001 + Jeukendrup + données VERTEX.
+    Court (<2h)   : -4%  — seuil standard
+    Long (2h–4h)  : -6%  — drift thermique attendu (Jeukendrup)
+    Ultra (>4h)   : -9%  — drift thermorégulateur prolongé (validé CNT Antony -9.47%)
+    """
+    if duration_s > 14400:   # >4h
+        return -9.0
+    elif duration_s > 7200:  # >2h
+        return -6.0
+    else:
+        return -4.0
+
+
 def cardiac_drift(df: pd.DataFrame,
                   duration_s: float = None,
                   dp_per_km: float = 0.0,
                   decay_v: float = None) -> dict:
     """
-    v4.1 — Détection 6 patterns : STABLE / DRIFT / DRIFT-CARDIO / DRIFT-NEURO / COLLAPSE / NEGATIVE_SPLIT
+    v4.2 — Détection 6 patterns : STABLE / DRIFT / DRIFT-CARDIO / DRIFT-NEURO / COLLAPSE / NEGATIVE_SPLIT
     COLLAPSE A      : FC chute > delta_thr OU (slope < slope_thr ET decay_v < +0.05)
     COLLAPSE B      : FC chute > 20% segments plats uniquement
     NEGATIVE_SPLIT  : slope < slope_thr MAIS decay_v >= +0.05 — FC baisse car perf monte (C5 v2)
-    DRIFT-CARDIO    : EF degrade < -4% ET fc_slope_bph > +0.5 — surcharge cardio-metabolique
-    DRIFT-NEURO     : EF degrade < -4% ET fc_slope_bph <= +0.5 — fatigue neuromusculaire
-    DRIFT           : EF degrade entre -2% et -4% — derive faible, signal precoce
+    DRIFT-CARDIO    : EF degrade < seuil adaptatif ET fc_slope_bph > +0.5 — surcharge cardio-metabolique
+    DRIFT-NEURO     : EF degrade < seuil adaptatif ET fc_slope_bph <= +0.5 — fatigue neuromusculaire
+    DRIFT           : EF degrade entre seuil/2 et seuil — derive faible, signal precoce
     Sprint 2 item 5 : seuil minimum 10 min terrain plat
-    CDC Elena v1.4 — C5 v2
+    CDC Elena v1.5 — SCI-4 seuil adaptatif + SCI-5 flag Q1 D+
     """
     _empty = {
         'ef1': None, 'ef2': None, 'drift_pct': None, 'quartiles': {},
@@ -311,6 +327,8 @@ def cardiac_drift(df: pd.DataFrame,
     # STABLE          : tout le reste
     _dur_s     = duration_s if duration_s is not None else float(df['time_s'].max())
     slope_thr, delta_thr = get_collapse_thresholds(_dur_s, dp_per_km)
+    drift_ef_thr = get_drift_ef_threshold(_dur_s)
+    drift_ef_thr_mild = drift_ef_thr / 2  # seuil DRIFT = moitié du seuil pathologique
 
     # C5 v2 : slope_thr déclenche COLLAPSE seulement si vitesse ne progresse pas
     _decay_v = decay_v if decay_v is not None else 0.0
@@ -330,14 +348,15 @@ def cardiac_drift(df: pd.DataFrame,
     elif slope_triggers_neg_split and not (collapse_a or collapse_b):
         pattern      = 'NEGATIVE_SPLIT'
         collapse_pct = None
-    elif drift_ef is not None and drift_ef < -4:
+    elif drift_ef is not None and drift_ef < drift_ef_thr:
+        # SCI-4 : seuil adaptatif (-4% court / -6% long / -9% ultra)
         # Derive significative -- discriminer origine par pente FC
         if fc_slope_bph > 0.5:
             pattern = 'DRIFT-CARDIO'   # FC monte + EF degrade -> surcharge cardio-metabolique
         else:
             pattern = 'DRIFT-NEURO'    # FC stable/baisse + EF degrade -> fatigue neuromusculaire
         collapse_pct = None
-    elif drift_ef is not None and drift_ef < -2:
+    elif drift_ef is not None and drift_ef < drift_ef_thr_mild:
         pattern      = 'DRIFT'         # Derive faible -- signal precoce non critique
         collapse_pct = None
     else:
@@ -356,6 +375,8 @@ def cardiac_drift(df: pd.DataFrame,
         'fc_q4_mean':       fc_q4_mean,
         'insufficient_data': False,
         'decay_v':          _decay_v,
+        'drift_ef_thr':     drift_ef_thr,      # SCI-4 : seuil utilisé, exploitable A2/debug
+        'q1_dplus_overloaded': False,           # SCI-5 : calculé dans app.py après detect_elevation_profile
     }
 
 
@@ -1334,6 +1355,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'color': '#2A4050',
             'icon':  'ℹ',
             'action_line': "→ Vérifie que ton fichier contient bien des données de vitesse, puis relance l'analyse.",
+            'share_line': "Données insuffisantes. Exporte depuis Garmin Connect et relance. — @vertex.effort",
         }
 
     # ── V1-NS : NEGATIVE_SPLIT — FC baisse car performance monte ───
@@ -1347,6 +1369,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'color': '#41C8E8',
             'icon':  '↑',
             'action_line': "→ Reproduis cette stratégie : pars conservateur, augmente l'allure après le mi-temps.",
+            'share_line': "Tu as accéléré quand les autres lâchaient. — @vertex.effort",
         }
 
     # ── V7 : COLLAPSE + allure tenue + score élevé ───────────────
@@ -1359,6 +1382,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'color': '#C84850',
             'icon':  '⚠',
             'action_line': "→ Consulte un médecin du sport avant ta prochaine compétition — ne reporte pas.",
+            'share_line': "Tu as tenu l'allure alors que ton cœur décrochait. Consulte avant de repartir. — @vertex.effort",
         }
 
     # ── V3-COLLAPSE : COLLAPSE + decay 0.85–0.90 ─────────────────
@@ -1375,6 +1399,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'color': '#C8A84B',
             'icon':  '~',
             'action_line': "→ Identifie le kilomètre de rupture et ajuste ta stratégie de ravitaillement pour la prochaine fois.",
+            'share_line': "Tu sais où ça s'est fissuré. C'est déjà gagné. — @vertex.effort",
         }
 
     # ── V6 : COLLAPSE franc (decay < 0.85) ───────────────────────
@@ -1387,6 +1412,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'color': '#C84850',
             'icon':  '⚠',
             'action_line': "→ Consulte un médecin du sport avant ta prochaine compétition — ne reporte pas.",
+            'share_line': "Ton cœur a envoyé un signal. Ne l'ignore pas. — @vertex.effort",
         }
 
     # ── V5 : Effondrement allure ─────────────────────────────────
@@ -1399,6 +1425,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'color': '#C84850',
             'icon':  '✕',
             'action_line': "→ Repose-toi 72h minimum avant toute séance intense, puis repasse en volume lent.",
+            'share_line': "La rupture est identifiée. La prochaine sera différente. — @vertex.effort",
         }
 
     # ── V4 : Fatigue combinée ─────────────────────────────────────
@@ -1412,6 +1439,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'color': '#C84850',
             'icon':  '✕',
             'action_line': "→ Stop séances intenses — récupération complète cette semaine, puis reprise progressive en Z2.",
+            'share_line': "Corps et tête ont lutté jusqu'au bout. Ça se travaille. — @vertex.effort",
         }
 
     # ── V3-NEURO : DRIFT-NEURO + decay < 0.93 (CDC Elena v1.3) ────
@@ -1426,6 +1454,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'color': '#C8A84B',
             'icon':  '~',
             'action_line': "→ Ajoute une sortie longue en Z2 cette semaine pour renforcer ta résistance musculaire.",
+            'share_line': "Tu sais où ça s'est fissuré. C'est déjà gagné. — @vertex.effort",
         }
 
     # ── V3 : Dégradation progressive ─────────────────────────────
@@ -1438,6 +1467,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'color': '#C8A84B',
             'icon':  '~',
             'action_line': "→ Repasse les splits par km : le moment de rupture est là — c'est ton point de travail pour la prochaine fois.",
+            'share_line': "Tu sais où ça s'est fissuré. C'est déjà gagné. — @vertex.effort",
         }
 
     # ── V2 : Performance correcte ────────────────────────────────
@@ -1456,6 +1486,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
                 'color': '#C8A84B',
                 'icon':  '~',
                 'action_line': "→ Intègre 2 sorties Z1-Z2 par semaine pendant 4 semaines — c'est ce qui réduit la dérive cardiaque.",
+                'share_line': "La marge existe. VERTEX l'a trouvée. — @vertex.effort",
             }
         return {
             'code':  'V2',
@@ -1467,6 +1498,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
             'color': '#C8A84B',
             'icon':  '~',
             'action_line': "→ Sur ta prochaine sortie longue, vise un écart d'allure <5% entre première et deuxième moitié.",
+            'share_line': "La marge existe. VERTEX l'a trouvée. — @vertex.effort",
         }
 
     # ── V1 : Performance solide ───────────────────────────────────
@@ -1478,4 +1510,5 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
         'color': '#41C8E8',
         'icon':  '✓',
         'action_line': "→ La base est là — ajoute une séance de fractionné court cette semaine pour monter en vitesse.",
+        'share_line': "Effort maîtrisé de bout en bout. C'est rare. — @vertex.effort",
     }

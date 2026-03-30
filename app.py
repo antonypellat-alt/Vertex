@@ -683,6 +683,14 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
         'fc_q1_mean': None, 'fc_q4_mean': None, 'insufficient_data': True,
         'decay_v': None,
     }
+    # SCI-5 : flag Q1 D+ surchargé — angle mort decay_ratio sur profil front-loaded
+    _ep = elev_profile  # déjà calculé plus haut
+    _dplus_by_q = _ep.get('dplus_by_q', {})
+    _total_dplus = sum(_dplus_by_q.values())
+    if _total_dplus > 0:
+        _q1_frac = _dplus_by_q.get('Q1', 0.0) / _total_dplus
+        if _q1_frac > 0.35:
+            drift['q1_dplus_overloaded'] = True
     hr_grade = hr_by_grade(df) if info['has_hr'] else None
     recs     = generate_coach_recommendations(profile, fi_score, drift, cad_an, info, fcmax)
     perf     = compute_performance_score(fi_score, drift, dp_per_km=_dp_per_km)
@@ -751,6 +759,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     _vsub   = _v['sub']
     _vcolor = _v['color']
     _vicon  = _v['icon']
+    _share  = _v.get('share_line', '')
 
     # Couleur du score global (calculé ici pour le bloc fusionné)
     _score     = perf['score']
@@ -803,6 +812,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                 {"⚠ " + _p_reason if _partial else "/ 100"}
             </div>
         </div>
+        {'<div style="width:100%;margin-top:12px;padding-top:10px;border-top:1px solid #152030;font-family:\'DM Mono\',monospace;font-size:0.62rem;color:#4A6070;letter-spacing:0.08em;font-style:italic;">' + _share + '</div>' if _share else ''}
     </div>""", unsafe_allow_html=True)
 
     # ── 2b. Ligne action immédiate — B1 Sprint 5 ────────────────
