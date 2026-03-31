@@ -1233,14 +1233,17 @@ def compute_performance_score(fi: dict, drift: dict, dp_per_km: float = 0.0) -> 
       partial        bool  True si score partiel
       partial_reason str | None
       weights        dict  poids réels utilisés
-      var_neutralized bool  True si variance neutralisée (D+ > 40 m/km)
+      var_neutralized bool  True si variance neutralisée (D+ > 60 m/km)
     """
     # ── Composante 1 : GAP Q4/Q1 ────────────────────────────────
     # decay_ratio : 1.0 = parfait, 0.0 = effondrement total
     # On normalise [0.7, 1.0] → [0, 100] (en dessous de 0.70 c'est catastrophique)
-    decay_ratio = fi.get('decay_ratio', float('nan'))
-    if _isnan(decay_ratio):
-        score_gap = 0
+    decay_ratio = fi.get('decay_ratio_corrected', fi.get('decay_ratio', float('nan')))
+    _correction_applied = fi.get('correction_applied', True)
+    _profile = fi.get('elev_profile', {}).get('profile', 'FLAT')
+    _gap_unscoreable = (not _correction_applied) and (_profile in ('ASCENDING', 'DESCENDING'))
+    if _isnan(decay_ratio) or _gap_unscoreable:
+        score_gap = None
     else:
         score_gap = int(round(max(0, min(100, (decay_ratio - 0.70) / 0.30 * 100))))
 
@@ -1248,7 +1251,7 @@ def compute_performance_score(fi: dict, drift: dict, dp_per_km: float = 0.0) -> 
     # Mesure la régularité : faible variance = bon score
     # On calcule l'écart-type des 4 quartiles GAP, normalisé
     # P3 : si D+ > 40 m/km → CV mécanique terrain → neutralisé à 50
-    var_neutralized = dp_per_km > 40.0
+    var_neutralized = dp_per_km > 60.0
     quartiles = fi.get('quartiles', {})
     q_vals = [v for v in quartiles.values() if v is not None and not _isnan(v)]
     if var_neutralized:
@@ -1295,8 +1298,22 @@ def compute_performance_score(fi: dict, drift: dict, dp_per_km: float = 0.0) -> 
     w_var       = _weights['w_var']
 
     # ── Score final ──────────────────────────────────────────────
-    ef_contrib = score_ef if score_ef is not None else 0
-    score_raw  = w_gap * score_gap + w_ef * ef_contrib + w_var * score_var
+    # score_gap peut être None si profil ASCENDING/DESCENDING + correction impossible
+    # → retirer sa contribution et redistribuer son poids sur EF + Var proportionnellement
+    ef_contrib  = score_ef if score_ef is not None else 0
+    if score_gap is None:
+        _total_remaining = w_ef + w_var
+        if _total_remaining > 0:
+            _w_ef2  = w_ef  / _total_remaining
+            _w_var2 = w_var / _total_remaining
+        else:
+            _w_ef2, _w_var2 = 0.0, 1.0
+        score_raw = _w_ef2 * ef_contrib + _w_var2 * score_var
+        partial = True
+        if not partial_reason:
+            partial_reason = "Score partiel — profil topographique, GAP non scorable"
+    else:
+        score_raw = w_gap * score_gap + w_ef * ef_contrib + w_var * score_var
     score      = int(round(min(100, max(0, score_raw))))
 
     return {
