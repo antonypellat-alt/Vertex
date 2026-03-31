@@ -660,7 +660,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     # pour que decay_v reflète le ratio corrigé et non les quartiles bruts
     fi_score = dict(fi)
     _corr = fi.get('decay_ratio_corrected', float('nan'))
-    if fi.get('correction_applied') and not (isinstance(_corr, float) and math.isnan(_corr)):
+    if not (isinstance(_corr, float) and math.isnan(_corr)) and _corr is not None:
         fi_score['decay_ratio'] = fi['decay_ratio_corrected']
         fi_score['decay_pct']   = fi['decay_pct_corrected']
 
