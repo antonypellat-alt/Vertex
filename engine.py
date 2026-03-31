@@ -1113,11 +1113,12 @@ def apply_decay_correction(fi: dict, elev_profile: dict, df: pd.DataFrame) -> di
             # Fallback : prendre GAP moyen Q4 toutes pentes confondues, clip seulement
             q4_mask = (df['distance'] >= 3*q_size) & (df['distance'] < 4*q_size) & (df['velocity'] > 0.3)
             q4_all = df[q4_mask]['gap']
-            if len(q4_all) > 5 and not _isnan(q1_ref):
+            if len(q4_all) > 5 and not _isnan(q1_original):
                 q4_corrected = float(q4_all.mean())
             else:
-                fi_out['decay_ratio_corrected'] = max(0.50, min(1.20, original_ratio)) if not _isnan(original_ratio) else original_ratio
+                fi_out['decay_ratio_corrected'] = max(0.50, min(0.89, original_ratio)) if not _isnan(original_ratio) else original_ratio
                 fi_out['decay_pct_corrected']   = (1 - fi_out['decay_ratio_corrected']) * 100 if not _isnan(fi_out['decay_ratio_corrected']) else float('nan')
+                fi_out['v7_inhibited']           = True
                 return fi_out
         else:
             fi_out['decay_ratio_corrected'] = max(0.50, min(1.20, original_ratio)) if not _isnan(original_ratio) else original_ratio
