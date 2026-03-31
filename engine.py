@@ -1003,26 +1003,29 @@ def detect_elevation_profile(df: pd.DataFrame) -> dict:
     else:
         dominant_q_asc, max_frac_asc = 'Q1', 0.0
 
-    BIAS_THRESHOLD_DESC = 0.40   # >40% D- concentre en Q3/Q4 — descente finale
+    BIAS_THRESHOLD_DESC = 0.30   # >30% D- concentre en Q3/Q4 — descente finale (aligné ASCENDING)
     BIAS_THRESHOLD_ASC  = 0.30   # >30% D+ concentre en Q1/Q2 — montee initiale (aligné SCI-5)
 
-    if max_frac_desc >= BIAS_THRESHOLD_DESC and dominant_q_desc in ('Q3', 'Q4'):
-        # Descente concentree en fin de course → GAP Q4 surestimee → decay biaise
-        return {
-            'profile':         'DESCENDING',
-            'elevation_bias':  max_frac_desc,
-            'magnitude':       max_frac_desc - 0.25,   # ecart vs distribution uniforme (25%)
-            'dominant_q':      dominant_q_desc,
-            'dplus_by_q':      dplus_by_q,
-            'dminus_by_q':     dminus_by_q,
-        }
-    elif max_frac_asc >= BIAS_THRESHOLD_ASC and dominant_q_asc in ('Q1', 'Q2'):
+    asc_triggered  = max_frac_asc  >= BIAS_THRESHOLD_ASC  and dominant_q_asc  in ('Q1', 'Q2')
+    desc_triggered = max_frac_desc >= BIAS_THRESHOLD_DESC and dominant_q_desc in ('Q3', 'Q4')
+
+    if asc_triggered and (not desc_triggered or max_frac_asc >= max_frac_desc):
         # Montee concentree en debut de course → Q1 penalise, decay artificiel
         return {
             'profile':         'ASCENDING',
             'elevation_bias':  max_frac_asc,
             'magnitude':       max_frac_asc - 0.25,
             'dominant_q':      dominant_q_asc,
+            'dplus_by_q':      dplus_by_q,
+            'dminus_by_q':     dminus_by_q,
+        }
+    elif desc_triggered:
+        # Descente concentree en fin de course → GAP Q4 surestimee → decay biaise
+        return {
+            'profile':         'DESCENDING',
+            'elevation_bias':  max_frac_desc,
+            'magnitude':       max_frac_desc - 0.25,   # ecart vs distribution uniforme (25%)
+            'dominant_q':      dominant_q_desc,
             'dplus_by_q':      dplus_by_q,
             'dminus_by_q':     dminus_by_q,
         }
@@ -1375,7 +1378,8 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
         }
 
     # ── V7 : COLLAPSE + allure tenue + score élevé ───────────────
-    if pattern == 'COLLAPSE' and decay_ratio > 0.90 and score > 75:
+    # Neutralisé sur profil ASCENDING/DESCENDING — signal topographique non interprétable
+    if pattern == 'COLLAPSE' and decay_ratio > 0.90 and score > 75 and fi.get('elev_profile', {}).get('profile', 'FLAT') == 'FLAT':
         cp = abs(collapse_pct) if collapse_pct is not None else 0
         return {
             'code':  'V7',
