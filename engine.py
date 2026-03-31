@@ -1011,7 +1011,7 @@ def detect_elevation_profile(df: pd.DataFrame) -> dict:
 
     if asc_triggered and (not desc_triggered or max_frac_asc >= max_frac_desc):
         # Montee concentree en debut de course → Q1 penalise, decay artificiel
-        return {
+        elev_profile = {
             'profile':         'ASCENDING',
             'elevation_bias':  max_frac_asc,
             'magnitude':       max_frac_asc - 0.25,
@@ -1019,9 +1019,10 @@ def detect_elevation_profile(df: pd.DataFrame) -> dict:
             'dplus_by_q':      dplus_by_q,
             'dminus_by_q':     dminus_by_q,
         }
+        return elev_profile
     elif desc_triggered:
         # Descente concentree en fin de course → GAP Q4 surestimee → decay biaise
-        return {
+        elev_profile = {
             'profile':         'DESCENDING',
             'elevation_bias':  max_frac_desc,
             'magnitude':       max_frac_desc - 0.25,   # ecart vs distribution uniforme (25%)
@@ -1029,8 +1030,9 @@ def detect_elevation_profile(df: pd.DataFrame) -> dict:
             'dplus_by_q':      dplus_by_q,
             'dminus_by_q':     dminus_by_q,
         }
+        return elev_profile
     else:
-        return {
+        elev_profile = {
             'profile':         'FLAT',
             'elevation_bias':  max(max_frac_desc, max_frac_asc),
             'magnitude':       0.0,
@@ -1038,6 +1040,7 @@ def detect_elevation_profile(df: pd.DataFrame) -> dict:
             'dplus_by_q':      dplus_by_q,
             'dminus_by_q':     dminus_by_q,
         }
+        return elev_profile
 
 
 # ══════════════════════════════════════════════════════════════════
