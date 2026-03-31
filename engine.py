@@ -1415,7 +1415,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
     # Collapse nutritionnel ou thermique partiel : allure partiellement tenue
     # (decay > 0.85 = perte GAP < 15%) → dégradation progressive, pas anomalie franche
     # COLLAPSE avec decay ≥ 0.85 → V3 (allure partiellement tenue malgré effondrement FC)
-    if pattern == 'COLLAPSE' and not _isnan(decay_ratio) and decay_ratio >= 0.85:
+    if pattern == 'COLLAPSE' and not _isnan(decay_ratio) and decay_ratio >= 0.85 and fi.get('elev_profile', {}).get('profile', 'FLAT') == 'FLAT':
         dp = decay_pct if not _isnan(decay_pct) else 0
         cp = abs(collapse_pct) if collapse_pct is not None else 0
         return {
@@ -1429,7 +1429,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
         }
 
     # ── V6 : COLLAPSE franc (decay < 0.85) ───────────────────────
-    if pattern == 'COLLAPSE':
+    if pattern == 'COLLAPSE' and fi.get('elev_profile', {}).get('profile', 'FLAT') == 'FLAT':
         cp = abs(collapse_pct) if collapse_pct is not None else 0
         return {
             'code':  'V6',
