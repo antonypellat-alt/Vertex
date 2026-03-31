@@ -1003,9 +1003,10 @@ def detect_elevation_profile(df: pd.DataFrame) -> dict:
     else:
         dominant_q_asc, max_frac_asc = 'Q1', 0.0
 
-    BIAS_THRESHOLD = 0.40   # >40% du D+/D- concentre dans 1 quartile
+    BIAS_THRESHOLD_DESC = 0.40   # >40% D- concentre en Q3/Q4 — descente finale
+    BIAS_THRESHOLD_ASC  = 0.30   # >30% D+ concentre en Q1/Q2 — montee initiale (aligné SCI-5)
 
-    if max_frac_desc >= BIAS_THRESHOLD and dominant_q_desc in ('Q3', 'Q4'):
+    if max_frac_desc >= BIAS_THRESHOLD_DESC and dominant_q_desc in ('Q3', 'Q4'):
         # Descente concentree en fin de course → GAP Q4 surestimee → decay biaise
         return {
             'profile':         'DESCENDING',
@@ -1015,7 +1016,7 @@ def detect_elevation_profile(df: pd.DataFrame) -> dict:
             'dplus_by_q':      dplus_by_q,
             'dminus_by_q':     dminus_by_q,
         }
-    elif max_frac_asc >= BIAS_THRESHOLD and dominant_q_asc in ('Q1', 'Q2'):
+    elif max_frac_asc >= BIAS_THRESHOLD_ASC and dominant_q_asc in ('Q1', 'Q2'):
         # Montee concentree en debut de course → Q1 penalise, decay artificiel
         return {
             'profile':         'ASCENDING',
