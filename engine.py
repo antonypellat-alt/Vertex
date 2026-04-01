@@ -211,8 +211,8 @@ def cardiac_drift(df: pd.DataFrame,
     COLLAPSE A      : FC chute > delta_thr OU (slope < slope_thr ET decay_v < +0.05)
     COLLAPSE B      : FC chute > 20% segments plats uniquement
     NEGATIVE_SPLIT  : slope < slope_thr MAIS decay_v >= +0.05 — FC baisse car perf monte (C5 v2)
-    DRIFT-CARDIO    : EF degrade < seuil adaptatif ET fc_slope_bph > +0.5 — surcharge cardio-metabolique
-    DRIFT-NEURO     : EF degrade < seuil adaptatif ET fc_slope_bph <= +0.5 — fatigue neuromusculaire
+    DRIFT-CARDIO    : EF degrade < seuil adaptatif ET ef_slope_pph < -0.005 — surcharge cardio-metabolique
+    DRIFT-NEURO     : EF degrade < seuil adaptatif ET ef_slope_pph >= -0.005 — fatigue neuromusculaire
     DRIFT           : EF degrade entre seuil/2 et seuil — derive faible, signal precoce
     Sprint 2 item 5 : seuil minimum 10 min terrain plat
     CDC Elena v1.5 — SCI-4 seuil adaptatif + SCI-5 flag Q1 D+
@@ -234,6 +234,16 @@ def cardiac_drift(df: pd.DataFrame,
         return _empty
 
     flat = flat.sort_values('distance').reset_index(drop=True)
+
+    # SCI-6 : série EF globale sur tous points valides (pas seulement flat)
+    # ef_point = gap_velocity / hr — coût cardiaque corrigé relief
+    all_valid = df[
+        (df['velocity'] > 0.3) &
+        (df['hr'] > 80)
+    ].copy()
+    if 'gap_velocity' not in all_valid.columns:
+        all_valid['gap_velocity'] = all_valid['velocity']
+    all_valid['ef_point'] = all_valid['gap_velocity'] / all_valid['hr'] * 100
 
     # Minimum 10 min de plat : moins de données = EF statistiquement non fiable
     flat_duration_min = (flat['time_s'].max() - flat['time_s'].min()) / 60
@@ -302,7 +312,7 @@ def cardiac_drift(df: pd.DataFrame,
     fc_q1_mean = fc_q.get('Q1')
     fc_q4_mean = fc_q.get('Q4')
 
-    # Régression linéaire FC/temps → pente bpm/heure
+    # Régression linéaire FC/temps sur segments plats — COLLAPSE / NEGATIVE_SPLIT
     t_arr  = flat['time_s'].to_numpy()
     hr_arr = flat['hr'].to_numpy()
     if len(t_arr) > 10:
@@ -310,6 +320,16 @@ def cardiac_drift(df: pd.DataFrame,
         fc_slope_bph = float(coeffs[0]) * 3600
     else:
         fc_slope_bph = 0.0
+
+    # SCI-6 : régression EF/temps sur tous points valides — Elena v1.6
+    # Pente négative = dégradation coût cardiaque à effort réel, indépendante du relief
+    t_ef   = all_valid['time_s'].to_numpy()
+    ef_arr = all_valid['ef_point'].to_numpy()
+    if len(t_ef) > 10:
+        coeffs_ef = np.polyfit(t_ef, ef_arr, 1)
+        ef_slope_pph = float(coeffs_ef[0]) * 3600  # variation EF par heure
+    else:
+        ef_slope_pph = 0.0
 
     # fc_delta_pct Q1 → Q4
     if fc_q1_mean and fc_q4_mean and fc_q1_mean > 0:
@@ -350,11 +370,14 @@ def cardiac_drift(df: pd.DataFrame,
         collapse_pct = None
     elif drift_ef is not None and drift_ef < drift_ef_thr:
         # SCI-4 : seuil adaptatif (-4% court / -6% long / -9% ultra)
-        # Derive significative -- discriminer origine par pente FC
-        if fc_slope_bph > 0.5:
-            pattern = 'DRIFT-CARDIO'   # FC monte + EF degrade -> surcharge cardio-metabolique
+        # SCI-6 : gate ef_slope_pph — confirme dégradation EF globale (anti faux positifs parcours technique)
+        if ef_slope_pph < -0.005:  # EF vraiment dégradée globalement — seuil provisoire
+            if fc_slope_bph > 0.5:
+                pattern = 'DRIFT-CARDIO'   # EF dégrade + FC monte -> surcharge cardio-metabolique
+            else:
+                pattern = 'DRIFT-NEURO'    # EF dégrade + FC stable/baisse -> fatigue neuromusculaire
         else:
-            pattern = 'DRIFT-NEURO'    # FC stable/baisse + EF degrade -> fatigue neuromusculaire
+            pattern = 'STABLE'             # ef_slope_pph ≥ -0.005 : faux positif EF flat (SCI-6)
         collapse_pct = None
     elif drift_ef is not None and drift_ef < drift_ef_thr_mild:
         pattern      = 'DRIFT'         # Derive faible -- signal precoce non critique
@@ -370,7 +393,8 @@ def cardiac_drift(df: pd.DataFrame,
         'quartiles':        ef_q,
         'pattern':          pattern,
         'collapse_pct':     collapse_pct,
-        'fc_slope_bph':     fc_slope_bph,
+        'fc_slope_bph':     fc_slope_bph,   # rétrocompat appelants
+        'ef_slope_pph':     ef_slope_pph,   # SCI-6 — pente EF globale
         'fc_q1_mean':       fc_q1_mean,
         'fc_q4_mean':       fc_q4_mean,
         'insufficient_data': False,
