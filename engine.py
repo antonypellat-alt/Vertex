@@ -371,7 +371,7 @@ def cardiac_drift(df: pd.DataFrame,
     elif drift_ef is not None and drift_ef < drift_ef_thr:
         # SCI-4 : seuil adaptatif (-4% court / -6% long / -9% ultra)
         # SCI-6 : gate ef_slope_pph — confirme dégradation EF globale (anti faux positifs parcours technique)
-        if ef_slope_pph < -0.005:  # EF vraiment dégradée globalement — seuil provisoire
+        if ef_slope_pph < -0.02:   # EF vraiment dégradée globalement — seuil provisoire
             if fc_slope_bph > 0.5:
                 pattern = 'DRIFT-CARDIO'   # EF dégrade + FC monte -> surcharge cardio-metabolique
             else:
