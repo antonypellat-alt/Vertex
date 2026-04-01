@@ -17,31 +17,41 @@ from datetime import datetime
 import streamlit as st
 import streamlit.components.v1 as components
 
+# ── Clés session_state centralisées ─────────────────────────────
+_SK_BYTES     = 'gpx_bytes'
+_SK_BYTES_P   = 'gpx_bytes_pending'
+_SK_FILENAME  = 'gpx_filename'
+_SK_FCMAX     = 'fcmax'
+_SK_FCMAX_OK  = 'fcmax_confirmed'
+_SK_ZONE_MODE = 'zone_mode'
+_SK_ZONES     = 'custom_zones'
+_SESSION_RESET_KEYS = [
+    _SK_BYTES, _SK_FILENAME, _SK_FCMAX_OK, _SK_ZONE_MODE, _SK_ZONES
+]
+
 # ── Imports modules VERTEX ───────────────────────────────────────
+# ── Parser registry — ajout format : 1 ligne ici uniquement ─────
 from gpx_parser import parse_gpx as _parse_gpx, extract_race_info
-
-@st.cache_data(show_spinner=False)
-def parse_gpx(file_bytes: bytes):
-    return _parse_gpx(file_bytes)
-
 from tcx_parser import parse_tcx as _parse_tcx
-@st.cache_data(show_spinner=False)
-def parse_tcx_cached(file_bytes: bytes):
-    return _parse_tcx(file_bytes)
-
 try:
     from fit_parser import parse_fit as _parse_fit
-    @st.cache_data(show_spinner=False)
-    def parse_fit_cached(file_bytes: bytes):
-        return _parse_fit(file_bytes)
     _FIT_AVAILABLE = True
 except ImportError:
+    _parse_fit     = None
     _FIT_AVAILABLE = False
-    def parse_fit_cached(file_bytes: bytes):
-        raise ValueError(
-            "Le support des fichiers FIT n'est pas disponible "
-            "sur cette instance."
-        )
+
+@st.cache_data(show_spinner=False)
+def _cached_parser(file_bytes: bytes, ext: str):
+    """Point d'entrée unique pour tous les formats. Ajouter un format = 1 ligne dans _PARSERS."""
+    _PARSERS = {
+        'gpx': _parse_gpx,
+        'tcx': _parse_tcx,
+        'fit': _parse_fit,
+    }
+    parser = _PARSERS.get(ext)
+    if parser is None:
+        raise ValueError(f"Format '{ext}' non supporté. Utilise GPX, TCX ou FIT.")
+    return parser(file_bytes)
 
 from engine import (
     fatigue_index, flat_pace_estimate, grade_pace_profile,
@@ -51,6 +61,16 @@ from engine import (
     detect_walk_segments, walk_stats, compute_performance_score,
     compute_verdict, detect_elevation_profile, apply_decay_correction,
 )
+@st.cache_data(show_spinner=False)
+def _compute_post_parse(df: pd.DataFrame):
+    """Cache les calculs purs post-parsing — évite le recalcul sur chaque rerun UI."""
+    from engine import detect_walk_segments, walk_stats, compute_km_splits, cadence_analysis
+    df_walk = detect_walk_segments(df)
+    wstats  = walk_stats(df_walk)
+    splits  = compute_km_splits(df_walk)
+    cad_an  = cadence_analysis(df_walk)
+    return df_walk, wstats, splits, cad_an
+
 from charts import (
     chart_elevation, chart_pace, chart_hr, chart_hr_pace_overlay,
     chart_quartiles, chart_grade_dist, chart_gap_profile,
@@ -427,20 +447,20 @@ def render_landing():
         # ── Checkbox mode zones (toujours visible) ───────────────────
         manual_zones = st.checkbox(
             "Je connais mes zones FC",
-            value=st.session_state.get('zone_mode', 'auto') == 'manual',
+            value=st.session_state.get(_SK_ZONE_MODE, 'auto') == 'manual',
             help="Cocher pour saisir tes seuils directement en bpm · La FCmax sera déduite du plafond Z5",
         )
-        st.session_state['zone_mode'] = 'manual' if manual_zones else 'auto'
+        st.session_state[_SK_ZONE_MODE] = 'manual' if manual_zones else 'auto'
 
         # ── Champ FCmax : visible uniquement en mode auto ─────────────
-        if st.session_state['zone_mode'] == 'auto':
-            if 'fcmax' not in st.session_state:
-                st.session_state['fcmax'] = 190
+        if st.session_state[_SK_ZONE_MODE] == 'auto':
+            if _SK_FCMAX not in st.session_state:
+                st.session_state[_SK_FCMAX] = 190
             fcmax_input = st.number_input(
                 "FCmax (bpm)",
                 min_value=150, max_value=220,
                 step=1,
-                key='fcmax',
+                key=_SK_FCMAX,
                 help="Ta fréquence cardiaque maximale réelle (défaut : 190 bpm)",
             )
             if fcmax_input == 190:
@@ -453,15 +473,15 @@ def render_landing():
                 )
         else:
             # Mode manuel : FCmax déduite de Z5 — on garde une valeur de référence pour les defaults
-            fcmax_input = st.session_state.get('fcmax', 190)
+            fcmax_input = st.session_state.get(_SK_FCMAX, 190)
 
-        if st.session_state['zone_mode'] == 'manual':
+        if st.session_state[_SK_ZONE_MODE] == 'manual':
             st.markdown("""
             <div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:#2A4050;
             letter-spacing:0.15em;margin:8px 0 6px;">SEUILS DE ZONES (bpm)</div>
             """, unsafe_allow_html=True)
             zc1, zc2, zc3, zc4, zc5 = st.columns(5)
-            default_zones = st.session_state.get('custom_zones', {
+            default_zones = st.session_state.get(_SK_ZONES, {
                 'Z1': (0,                      int(fcmax_input * 0.60)),
                 'Z2': (int(fcmax_input * 0.60), int(fcmax_input * 0.70)),
                 'Z3': (int(fcmax_input * 0.70), int(fcmax_input * 0.80)),
@@ -473,7 +493,7 @@ def render_landing():
             z3_hi = zc3.number_input("Z3 max", min_value=80, max_value=220, value=default_zones['Z3'][1], step=1)
             z4_hi = zc4.number_input("Z4 max", min_value=80, max_value=220, value=default_zones['Z4'][1], step=1)
             z5_hi = zc5.number_input("Z5 max", min_value=80, max_value=220, value=default_zones['Z5'][1], step=1)
-            st.session_state['custom_zones'] = {
+            st.session_state[_SK_ZONES] = {
                 'Z1': (0,     z1_hi),
                 'Z2': (z1_hi, z2_hi),
                 'Z3': (z2_hi, z3_hi),
@@ -494,19 +514,19 @@ def render_landing():
             label_visibility="visible",
         )
         if uploaded:
-            st.session_state['gpx_bytes_pending'] = uploaded.read()
-            st.session_state['gpx_filename']      = uploaded.name
+            st.session_state[_SK_BYTES_P] = uploaded.read()
+            st.session_state[_SK_FILENAME] = uploaded.name
 
-        if st.session_state.get('gpx_bytes_pending'):
+        if st.session_state.get(_SK_BYTES_P):
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("▲  VALIDER ET ANALYSER", use_container_width=True):
-                st.session_state['gpx_bytes'] = st.session_state.pop('gpx_bytes_pending')
-                _cz = st.session_state.get('custom_zones')
-                _zm = st.session_state.get('zone_mode', 'auto')
+                st.session_state[_SK_BYTES] = st.session_state.pop(_SK_BYTES_P)
+                _cz = st.session_state.get(_SK_ZONES)
+                _zm = st.session_state.get(_SK_ZONE_MODE, 'auto')
                 if _zm == 'manual' and _cz and 'Z5' in _cz:
-                    st.session_state['fcmax_confirmed'] = int(_cz['Z5'][1])
+                    st.session_state[_SK_FCMAX_OK] = int(_cz['Z5'][1])
                 else:
-                    st.session_state['fcmax_confirmed'] = int(st.session_state.get('fcmax', 190))
+                    st.session_state[_SK_FCMAX_OK] = int(st.session_state.get(_SK_FCMAX, 190))
                 st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -556,8 +576,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
             "(1 point/sec → 1 point/5sec)."
         )
         if st.button("↺ Recommencer"):
-            for k in ['gpx_bytes', 'gpx_filename', 'fcmax_confirmed',
-                      'zone_mode', 'custom_zones']:
+            for k in _SESSION_RESET_KEYS:
                 st.session_state.pop(k, None)
             st.rerun()
         return
@@ -579,23 +598,17 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     spinner_label = spinner_labels.get(ext, "Analyse du fichier GPX...")
     with st.spinner(spinner_label):
         try:
-            if ext == 'tcx':
-                df = parse_tcx_cached(gpx_bytes)
-            elif ext == 'fit':
-                if not _FIT_AVAILABLE:
-                    st.error(
-                        "Les fichiers FIT ne sont pas supportés sur cette instance. "
-                        "Exporte ton activité en GPX depuis Garmin Connect."
-                    )
-                    return
-                df = parse_fit_cached(gpx_bytes)
-            else:
-                df = parse_gpx(gpx_bytes)
+            if ext == 'fit' and not _FIT_AVAILABLE:
+                st.error(
+                    "Les fichiers FIT ne sont pas supportés sur cette instance. "
+                    "Exporte ton activité en GPX depuis Garmin Connect."
+                )
+                return
+            df = _cached_parser(gpx_bytes, ext)
         except (ValueError, KeyError, AttributeError) as e:
             st.error(f"Erreur de lecture ({ext.upper()}) : {e}")
             if st.button("↺ Recommencer"):
-                for k in ['gpx_bytes', 'gpx_filename', 'fcmax_confirmed',
-                          'zone_mode', 'custom_zones']:
+                for k in _SESSION_RESET_KEYS:
                     st.session_state.pop(k, None)
                 st.rerun()
             return
@@ -605,8 +618,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                 "Réduis la fréquence d'enregistrement GPS sur ta montre."
             )
             if st.button("↺ Recommencer"):
-                for k in ['gpx_bytes', 'gpx_filename', 'fcmax_confirmed',
-                          'zone_mode', 'custom_zones']:
+                for k in _SESSION_RESET_KEYS:
                     st.session_state.pop(k, None)
                 st.rerun()
             return
@@ -623,20 +635,16 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
             _decay_for_profile = fi['decay_ratio']
         profile  = classify_profile(_decay_for_profile)
 
-    # Sprint 2 ④ : détection marche — enrichit df avec colonne is_walk
-    df       = detect_walk_segments(df)
-    wstats   = walk_stats(df)
+    # Post-parse mis en cache — recalcul uniquement si le df change
+    df, wstats, splits, cad_an = _compute_post_parse(df)
 
-    splits   = compute_km_splits(df)
-    cad_an   = cadence_analysis(df)
-
-    zone_mode    = st.session_state.get('zone_mode', 'auto')
-    custom_zones = st.session_state.get('custom_zones', None)
+    zone_mode    = st.session_state.get(_SK_ZONE_MODE, 'auto')
+    custom_zones = st.session_state.get(_SK_ZONES, None)
     if zone_mode == 'manual' and custom_zones and 'Z5' in custom_zones:
         fcmax = int(custom_zones['Z5'][1])
     else:
-        fcmax = int(st.session_state.get('fcmax_confirmed',
-                    st.session_state.get('fcmax', 190)))
+        fcmax = int(st.session_state.get(_SK_FCMAX_OK,
+                    st.session_state.get(_SK_FCMAX, 190)))
 
     with st.sidebar:
         st.markdown('<div class="hud-label">// PARAMETRES //</div>', unsafe_allow_html=True)
@@ -650,7 +658,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
         </div>""", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("↺ NOUVELLE ANALYSE"):
-            for k in ['gpx_bytes', 'gpx_filename', 'fcmax', 'fcmax_confirmed', 'zone_mode', 'custom_zones']:
+            for k in _SESSION_RESET_KEYS:
                 st.session_state.pop(k, None)
             st.rerun()
 
@@ -1587,12 +1595,12 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
 # ══════════════════════════════════════════════════════════════════
 
 def main():
-    if 'gpx_bytes' not in st.session_state:
+    if _SK_BYTES not in st.session_state:
         render_landing()
     else:
         render_dashboard(
-            st.session_state['gpx_bytes'],
-            st.session_state.get('gpx_filename', 'course.gpx'),
+            st.session_state[_SK_BYTES],
+            st.session_state.get(_SK_FILENAME, 'course.gpx'),
         )
 
 

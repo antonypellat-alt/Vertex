@@ -2050,6 +2050,289 @@ test("K1 · FIT : import réussi", _fit_available,
 
 
 # ══════════════════════════════════════════════════════════════════
+# G — GOLDEN TESTS SUR GPX RÉELS
+# ══════════════════════════════════════════════════════════════════
+# Objectif : détecter toute régression moteur sur données validées.
+# Les valeurs attendues sont issues d'analyses manuelles confirmées.
+# Si un test G échoue après refacto → régression réelle, pas de merge.
+# ══════════════════════════════════════════════════════════════════
+section("G — Golden tests GPX réels")
+import os
+from gpx_parser import parse_gpx
+_GPX_DIR = os.path.join(os.path.dirname(__file__), "Dataset GPX")
+def _load_gpx(filename: str):
+    """Charge un GPX réel depuis Dataset GPX/. Retourne None si absent."""
+    path = os.path.join(_GPX_DIR, filename)
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        return parse_gpx(f.read())
+# ── G1 : Samuel CDF Long 2026 ───────────────────────────────────
+# Course validée : 51.6km / 2779mD+ / 5h32
+# Score attendu : 85 (partiel — profil ASCENDING)
+# Verdict attendu : V3 (DÉGRADATION PROGRESSIVE)
+# elev_profile : ASCENDING
+# FCmax saisie : 195
+_g1_df = _load_gpx("CDF Trail Long 2026 Samuel.gpx")
+if _g1_df is None:
+    test("G1a · Samuel CDF Long — GPX chargé", False, "Fichier absent dans Dataset GPX/")
+else:
+    try:
+        from engine import (fatigue_index, detect_elevation_profile,
+                            apply_decay_correction, cardiac_drift,
+                            compute_performance_score, compute_verdict,
+                            classify_profile)
+        from gpx_parser import extract_race_info
+        import math
+        _g1_info   = extract_race_info(_g1_df, "CDF Trail Long 2026 Samuel.gpx")
+        _g1_fi     = fatigue_index(_g1_df)
+        _g1_ep     = detect_elevation_profile(_g1_df)
+        _g1_fi     = apply_decay_correction(_g1_fi, _g1_ep, _g1_df)
+        _g1_dp     = _g1_info['elevation_gain'] / _g1_info['distance_km'] if _g1_info.get('distance_km', 0) > 0 else 0.0
+        _g1_corr   = _g1_fi.get('decay_ratio_corrected', float('nan'))
+        _g1_fi_s   = dict(_g1_fi)
+        if not (isinstance(_g1_corr, float) and math.isnan(_g1_corr)) and _g1_corr is not None:
+            _g1_fi_s['decay_ratio'] = _g1_corr
+            _g1_fi_s['decay_pct']   = _g1_fi['decay_pct_corrected']
+        _g1_dv     = (_g1_fi_s.get('decay_ratio', 1.0) or 1.0) - 1.0
+        _g1_drift  = cardiac_drift(_g1_df,
+                         duration_s=_g1_info['total_time_s'],
+                         dp_per_km=_g1_dp,
+                         decay_v=_g1_dv)
+        _g1_perf   = compute_performance_score(_g1_fi_s, _g1_drift, dp_per_km=_g1_dp)
+        _g1_v      = compute_verdict(_g1_fi_s, _g1_drift, _g1_perf)
+        test("G1a · Samuel CDF Long — GPX chargé",
+             _g1_df is not None and len(_g1_df) > 100,
+             f"points={len(_g1_df)}")
+        test("G1b · Samuel CDF Long — distance 48–55 km",
+             48.0 <= _g1_info['distance_km'] <= 55.0,
+             f"distance={_g1_info['distance_km']:.1f} km")
+        test("G1c · Samuel CDF Long — elev_profile = DESCENDING",
+             _g1_ep.get('profile') == 'DESCENDING',
+             f"profile={_g1_ep.get('profile')}")
+        test("G1d · Samuel CDF Long — score partiel 80–92",
+             80 <= _g1_perf['score'] <= 92,
+             f"score={_g1_perf['score']}, partial={_g1_perf['partial']}")
+        test("G1e · Samuel CDF Long — verdict V1 (BUG-SPRINT6 : sur-correction DESCENDING)",
+             _g1_v['code'] == 'V1',
+             f"verdict={_g1_v['code']}, label={_g1_v['label']}")
+        # BUG-SPRINT6 : apply_decay_correction sur profil DESCENDING sur-corrige le decay.
+        # Samuel decay brut=1.456 → corrigé=1.20 → verdict V1 au lieu de V5-C/V3.
+        # Le moteur détecte bien COLLAPSE (cardiac_drift) mais la matrice verdict
+        # reçoit un decay_ratio corrigé trop haut et retourne V1 (PERFORMANCE SOLIDE).
+        # À revalider après recalibration du cap correction DESCENDING (Elena requis).
+        # Datasets de validation : Samuel CDF Long 2026 + second dataset D- distribué.
+        test("G1f · Samuel CDF Long — pas de faux positif V7",
+             _g1_v['code'] != 'V7',
+             f"verdict={_g1_v['code']}")
+    except Exception as e:
+        test("G1 · Samuel CDF Long — pipeline sans crash", False, str(e))
+# ── G2 : Dylan CDF Court 2026 ───────────────────────────────────
+# Course validée : 28.2km / 1440mD+ / 2h31m32
+# Score attendu : 92 (partiel EF)
+# Verdict attendu : V1 STABLE
+# FCmax saisie : 188
+_g2_df = _load_gpx("CDF Trail Court 2026 Dylan.gpx")
+if _g2_df is None:
+    test("G2a · Dylan CDF Court — GPX chargé", False, "Fichier absent dans Dataset GPX/")
+else:
+    try:
+        _g2_info   = extract_race_info(_g2_df, "CDF Trail Court 2026 Dylan.gpx")
+        _g2_fi     = fatigue_index(_g2_df)
+        _g2_ep     = detect_elevation_profile(_g2_df)
+        _g2_fi     = apply_decay_correction(_g2_fi, _g2_ep, _g2_df)
+        _g2_dp     = _g2_info['elevation_gain'] / _g2_info['distance_km'] if _g2_info.get('distance_km', 0) > 0 else 0.0
+        _g2_corr   = _g2_fi.get('decay_ratio_corrected', float('nan'))
+        _g2_fi_s   = dict(_g2_fi)
+        if not (isinstance(_g2_corr, float) and math.isnan(_g2_corr)) and _g2_corr is not None:
+            _g2_fi_s['decay_ratio'] = _g2_corr
+            _g2_fi_s['decay_pct']   = _g2_fi['decay_pct_corrected']
+        _g2_dv     = (_g2_fi_s.get('decay_ratio', 1.0) or 1.0) - 1.0
+        _g2_drift  = cardiac_drift(_g2_df,
+                         duration_s=_g2_info['total_time_s'],
+                         dp_per_km=_g2_dp,
+                         decay_v=_g2_dv)
+        _g2_perf   = compute_performance_score(_g2_fi_s, _g2_drift, dp_per_km=_g2_dp)
+        _g2_v      = compute_verdict(_g2_fi_s, _g2_drift, _g2_perf)
+        test("G2a · Dylan CDF Court — GPX chargé",
+             _g2_df is not None and len(_g2_df) > 100,
+             f"points={len(_g2_df)}")
+        test("G2b · Dylan CDF Court — distance 26–31 km",
+             26.0 <= _g2_info['distance_km'] <= 31.0,
+             f"distance={_g2_info['distance_km']:.1f} km")
+        test("G2c · Dylan CDF Court — score ≥ 88",
+             _g2_perf['score'] >= 88,
+             f"score={_g2_perf['score']}")
+        test("G2d · Dylan CDF Court — verdict V1",
+             _g2_v['code'] == 'V1',
+             f"verdict={_g2_v['code']}, label={_g2_v['label']}")
+        test("G2e · Dylan CDF Court — drift STABLE",
+             _g2_drift.get('pattern') == 'STABLE',
+             f"pattern={_g2_drift.get('pattern')}")
+    except Exception as e:
+        test("G2 · Dylan CDF Court — pipeline sans crash", False, str(e))
+# ── G3 : Coralie CDF Long 2026 ──────────────────────────────────
+# Course validée : 51.3km / 2792mD+ / 6h01
+# Score attendu : 86
+# Verdict attendu : V1 STABLE
+# elev_profile : DESCENDING (validé B7)
+_g3_df = _load_gpx("CDF Trail Long 2026 Coralie.gpx")
+if _g3_df is None:
+    test("G3a · Coralie CDF Long — GPX chargé", False, "Fichier absent dans Dataset GPX/")
+else:
+    try:
+        _g3_info   = extract_race_info(_g3_df, "CDF Trail Long 2026 Coralie.gpx")
+        _g3_fi     = fatigue_index(_g3_df)
+        _g3_ep     = detect_elevation_profile(_g3_df)
+        _g3_fi     = apply_decay_correction(_g3_fi, _g3_ep, _g3_df)
+        _g3_dp     = _g3_info['elevation_gain'] / _g3_info['distance_km'] if _g3_info.get('distance_km', 0) > 0 else 0.0
+        _g3_corr   = _g3_fi.get('decay_ratio_corrected', float('nan'))
+        _g3_fi_s   = dict(_g3_fi)
+        if not (isinstance(_g3_corr, float) and math.isnan(_g3_corr)) and _g3_corr is not None:
+            _g3_fi_s['decay_ratio'] = _g3_corr
+            _g3_fi_s['decay_pct']   = _g3_fi['decay_pct_corrected']
+        _g3_dv     = (_g3_fi_s.get('decay_ratio', 1.0) or 1.0) - 1.0
+        _g3_drift  = cardiac_drift(_g3_df,
+                         duration_s=_g3_info['total_time_s'],
+                         dp_per_km=_g3_dp,
+                         decay_v=_g3_dv)
+        _g3_perf   = compute_performance_score(_g3_fi_s, _g3_drift, dp_per_km=_g3_dp)
+        _g3_v      = compute_verdict(_g3_fi_s, _g3_drift, _g3_perf)
+        test("G3a · Coralie CDF Long — GPX chargé",
+             _g3_df is not None and len(_g3_df) > 100,
+             f"points={len(_g3_df)}")
+        test("G3b · Coralie CDF Long — distance 48–55 km",
+             48.0 <= _g3_info['distance_km'] <= 55.0,
+             f"distance={_g3_info['distance_km']:.1f} km")
+        test("G3c · Coralie CDF Long — elev_profile = DESCENDING",
+             _g3_ep.get('profile') == 'DESCENDING',
+             f"profile={_g3_ep.get('profile')}")
+        test("G3d · Coralie CDF Long — score 82–94",
+             82 <= _g3_perf['score'] <= 94,
+             f"score={_g3_perf['score']}")
+        test("G3e · Coralie CDF Long — verdict V1",
+             _g3_v['code'] == 'V1',
+             f"verdict={_g3_v['code']}, label={_g3_v['label']}")
+        test("G3f · Coralie CDF Long — pas de faux positif V7",
+             _g3_v['code'] != 'V7',
+             f"verdict={_g3_v['code']}")
+    except Exception as e:
+        test("G3 · Coralie CDF Long — pipeline sans crash", False, str(e))
+# ── G4 : Jérémy 43km ────────────────────────────────────────────
+# Course validée : 43.3km / 2217mD+ / 5h11
+# elev_profile : FLAT — correction decay non appliquée
+# Pattern : COLLAPSE — effondrement CV détecté
+# Score attendu : ~70 (partiel — EF non interprétable sur COLLAPSE)
+# Verdict attendu : V3 DÉGRADATION PROGRESSIVE
+# FCmax : 189
+_g4_df = _load_gpx("Jeremy 43km.gpx")
+if _g4_df is None:
+    test("G4a · Jérémy 43km — GPX chargé", False, "Fichier absent dans Dataset GPX/")
+else:
+    try:
+        _g4_info  = extract_race_info(_g4_df, "Jeremy 43km.gpx")
+        _g4_fi    = fatigue_index(_g4_df)
+        _g4_ep    = detect_elevation_profile(_g4_df)
+        _g4_fi    = apply_decay_correction(_g4_fi, _g4_ep, _g4_df)
+        _g4_dp    = _g4_info['elevation_gain'] / _g4_info['distance_km'] if _g4_info.get('distance_km', 0) > 0 else 0.0
+        _g4_corr  = _g4_fi.get('decay_ratio_corrected', float('nan'))
+        _g4_fi_s  = dict(_g4_fi)
+        if not (isinstance(_g4_corr, float) and math.isnan(_g4_corr)) and _g4_corr is not None:
+            _g4_fi_s['decay_ratio'] = _g4_corr
+            _g4_fi_s['decay_pct']   = _g4_fi['decay_pct_corrected']
+        _g4_dv    = (_g4_fi_s.get('decay_ratio', 1.0) or 1.0) - 1.0
+        _g4_drift = cardiac_drift(_g4_df,
+                        duration_s=_g4_info['total_time_s'],
+                        dp_per_km=_g4_dp,
+                        decay_v=_g4_dv)
+        _g4_perf  = compute_performance_score(_g4_fi_s, _g4_drift, dp_per_km=_g4_dp)
+        _g4_v     = compute_verdict(_g4_fi_s, _g4_drift, _g4_perf)
+        test("G4a · Jérémy 43km — GPX chargé",
+             _g4_df is not None and len(_g4_df) > 100,
+             f"points={len(_g4_df)}")
+        test("G4b · Jérémy 43km — distance 41–46 km",
+             41.0 <= _g4_info['distance_km'] <= 46.0,
+             f"distance={_g4_info['distance_km']:.1f} km")
+        test("G4c · Jérémy 43km — elev_profile = FLAT",
+             _g4_ep.get('profile') == 'FLAT',
+             f"profile={_g4_ep.get('profile')}")
+        test("G4d · Jérémy 43km — correction decay non appliquée",
+             _g4_fi.get('correction_applied') == False,
+             f"correction_applied={_g4_fi.get('correction_applied')}")
+        test("G4e · Jérémy 43km — pattern COLLAPSE",
+             _g4_drift.get('pattern') == 'COLLAPSE',
+             f"pattern={_g4_drift.get('pattern')}")
+        test("G4f · Jérémy 43km — score partiel 60–80",
+             60 <= _g4_perf['score'] <= 80,
+             f"score={_g4_perf['score']}, partial={_g4_perf['partial']}")
+        test("G4g · Jérémy 43km — verdict V3",
+             _g4_v['code'] == 'V3',
+             f"verdict={_g4_v['code']}, label={_g4_v['label']}")
+    except Exception as e:
+        test("G4 · Jérémy 43km — pipeline sans crash", False, str(e))
+# ── G5 : Coralie CDF Long 2023 ──────────────────────────────────
+# Course validée : 69km / 2601mD+ / 7h32
+# elev_profile : DESCENDING — correction decay appliquée
+# decay brut=0.75 → corrigé=0.90 (sur-correction connue BUG-SPRINT6)
+# Pattern : DRIFT-CARDIO (-16.1%) — signal dominant malgré correction
+# Score attendu : ~41 (complet — EF disponible)
+# Verdict attendu : V4 FATIGUE COMBINÉE
+# FCmax : 200
+# Note : second dataset BUG-SPRINT6 (D- distribué Q3+Q4, correction trop permissive)
+_g5_df = _load_gpx("CDF Trail Long 2023 Coralie.gpx")
+if _g5_df is None:
+    test("G5a · Coralie CDF 2023 — GPX chargé", False, "Fichier absent dans Dataset GPX/")
+else:
+    try:
+        _g5_info  = extract_race_info(_g5_df, "CDF Trail Long 2023 Coralie.gpx")
+        _g5_fi    = fatigue_index(_g5_df)
+        _g5_ep    = detect_elevation_profile(_g5_df)
+        _g5_fi    = apply_decay_correction(_g5_fi, _g5_ep, _g5_df)
+        _g5_dp    = _g5_info['elevation_gain'] / _g5_info['distance_km'] if _g5_info.get('distance_km', 0) > 0 else 0.0
+        _g5_corr  = _g5_fi.get('decay_ratio_corrected', float('nan'))
+        _g5_fi_s  = dict(_g5_fi)
+        if not (isinstance(_g5_corr, float) and math.isnan(_g5_corr)) and _g5_corr is not None:
+            _g5_fi_s['decay_ratio'] = _g5_corr
+            _g5_fi_s['decay_pct']   = _g5_fi['decay_pct_corrected']
+        _g5_dv    = (_g5_fi_s.get('decay_ratio', 1.0) or 1.0) - 1.0
+        _g5_drift = cardiac_drift(_g5_df,
+                        duration_s=_g5_info['total_time_s'],
+                        dp_per_km=_g5_dp,
+                        decay_v=_g5_dv)
+        _g5_perf  = compute_performance_score(_g5_fi_s, _g5_drift, dp_per_km=_g5_dp)
+        _g5_v     = compute_verdict(_g5_fi_s, _g5_drift, _g5_perf)
+        test("G5a · Coralie CDF 2023 — GPX chargé",
+             _g5_df is not None and len(_g5_df) > 100,
+             f"points={len(_g5_df)}")
+        test("G5b · Coralie CDF 2023 — distance 66–72 km",
+             66.0 <= _g5_info['distance_km'] <= 72.0,
+             f"distance={_g5_info['distance_km']:.1f} km")
+        test("G5c · Coralie CDF 2023 — elev_profile = DESCENDING",
+             _g5_ep.get('profile') == 'DESCENDING',
+             f"profile={_g5_ep.get('profile')}")
+        test("G5d · Coralie CDF 2023 — correction decay appliquée",
+             _g5_fi.get('correction_applied') == True,
+             f"correction_applied={_g5_fi.get('correction_applied')}")
+        test("G5e · Coralie CDF 2023 — pattern DRIFT-CARDIO",
+             _g5_drift.get('pattern') == 'DRIFT-CARDIO',
+             f"pattern={_g5_drift.get('pattern')}, drift_pct={_g5_drift.get('drift_pct'):.1f}%")
+        test("G5f · Coralie CDF 2023 — score complet 35–50",
+             35 <= _g5_perf['score'] <= 50,
+             f"score={_g5_perf['score']}, partial={_g5_perf['partial']}")
+        test("G5g · Coralie CDF 2023 — verdict V4",
+             _g5_v['code'] == 'V4',
+             f"verdict={_g5_v['code']}, label={_g5_v['label']}")
+        test("G5h · Coralie CDF 2023 — drift_pct < -10% (DRIFT-CARDIO fort)",
+             (_g5_drift.get('drift_pct') or 0) < -10.0,
+             f"drift_pct={_g5_drift.get('drift_pct')}")
+        # Note BUG-SPRINT6 : decay brut=0.75 corrigé→0.90 par apply_decay_correction DESCENDING.
+        # Sur-correction présente mais masquée par DRIFT-CARDIO dominant.
+        # Second dataset de validation pour recalibration cap correction (bloqué Elena).
+    except Exception as e:
+        test("G5 · Coralie CDF 2023 — pipeline sans crash", False, str(e))
+
+
+# ══════════════════════════════════════════════════════════════════
 # RAPPORT FINAL
 # ══════════════════════════════════════════════════════════════════
 

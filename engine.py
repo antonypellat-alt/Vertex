@@ -985,7 +985,6 @@ def detect_elevation_profile(df: pd.DataFrame) -> dict:
       dplus_by_q    dict  D+ par quartile (metres)
       dminus_by_q   dict  D- absolu par quartile (metres)
     """
-    df = df.copy()
     dist_total = df['distance'].max()
     if dist_total <= 0:
         return {
