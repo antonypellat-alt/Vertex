@@ -1278,7 +1278,7 @@ def compute_performance_score(fi: dict, drift: dict, dp_per_km: float = 0.0) -> 
     # Mesure la régularité : faible variance = bon score
     # On calcule l'écart-type des 4 quartiles GAP, normalisé
     # P3 : si D+ > 40 m/km → CV mécanique terrain → neutralisé à 50
-    var_neutralized = dp_per_km > 60.0
+    var_neutralized = dp_per_km > 40.0
     quartiles = fi.get('quartiles', {})
     q_vals = [v for v in quartiles.values() if v is not None and not _isnan(v)]
     if var_neutralized:
@@ -1297,12 +1297,14 @@ def compute_performance_score(fi: dict, drift: dict, dp_per_km: float = 0.0) -> 
 
     # ── Composante 3 : Dérive EF ─────────────────────────────────
     # drift_pct : 0% = parfait, -20% = très mauvais
-    # COLLAPSE ou insufficient → composante non disponible
+    # COLLAPSE, insufficient ou STABLE → composante non disponible
+    # STABLE : ef_slope_pph non significatif → drift_pct sur segments
+    # plats non représentatif → neutralisé (Elena SCI-6 v2)
     pattern      = drift.get('pattern')
     insufficient = drift.get('insufficient_data', False)
     drift_pct    = drift.get('drift_pct')
 
-    ef_unavailable = insufficient or pattern == 'COLLAPSE'
+    ef_unavailable = insufficient or pattern == 'COLLAPSE' or pattern == 'STABLE'
 
     if ef_unavailable or drift_pct is None:
         score_ef = None
