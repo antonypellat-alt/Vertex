@@ -60,6 +60,7 @@ from engine import (
     generate_coach_recommendations, v_to_pace, ZONE_NAMES,
     detect_walk_segments, walk_stats, compute_performance_score,
     compute_verdict, detect_elevation_profile, apply_decay_correction,
+    prepare_analysis,
 )
 @st.cache_data(show_spinner=False)
 def _compute_post_parse(df: pd.DataFrame):
@@ -663,42 +664,11 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
             st.rerun()
 
     zones    = compute_hr_zones(df, fcmax, custom_zones if zone_mode == 'manual' else None) if info['has_hr'] else None
-    _dp_per_km = info['elevation_gain'] / info['distance_km'] if info.get('distance_km', 0) > 0 else 0.0
-    # SCI-3 : construire fi_score (ratio corrigé) AVANT cardiac_drift
-    # pour que decay_v reflète le ratio corrigé et non les quartiles bruts
-    fi_score = dict(fi)
-    _corr = fi.get('decay_ratio_corrected', float('nan'))
-    if not (isinstance(_corr, float) and math.isnan(_corr)) and _corr is not None:
-        fi_score['decay_ratio'] = fi['decay_ratio_corrected']
-        fi_score['decay_pct']   = fi['decay_pct_corrected']
-
-    # [20] decay_v depuis ratio corrigé SCI-3 (pas depuis Q1/Q4 bruts)
-    # Évite le faux NEGATIVE_SPLIT sur profils BVT/TDS (descente finale gonfle Q4)
-    _decay_ratio_for_drift = fi_score.get('decay_ratio', 1.0)
-    if _decay_ratio_for_drift is None or (
-        isinstance(_decay_ratio_for_drift, float) and
-        math.isnan(_decay_ratio_for_drift)
-    ):
-        _decay_ratio_for_drift = 1.0
-    _decay_v_app = _decay_ratio_for_drift - 1.0
-
-    drift    = cardiac_drift(df,
-                   duration_s=info['total_time_s'],
-                   dp_per_km=_dp_per_km,
-                   decay_v=_decay_v_app) if info['has_hr'] else {
-        'ef1': None, 'ef2': None, 'drift_pct': None, 'quartiles': {},
-        'pattern': None, 'collapse_pct': None, 'fc_slope_bph': None,
-        'fc_q1_mean': None, 'fc_q4_mean': None, 'insufficient_data': True,
-        'decay_v': None,
-    }
-    # SCI-5 : flag Q1 D+ surchargé — angle mort decay_ratio sur profil front-loaded
-    _ep = elev_profile  # déjà calculé plus haut
-    _dplus_by_q = _ep.get('dplus_by_q', {})
-    _total_dplus = sum(_dplus_by_q.values())
-    if _total_dplus > 0:
-        _q1_frac = _dplus_by_q.get('Q1', 0.0) / _total_dplus
-        if _q1_frac > 0.35:
-            drift['q1_dplus_overloaded'] = True
+    _analysis    = prepare_analysis(fi, elev_profile, df, info)
+    fi_score     = _analysis['fi_score']
+    drift        = _analysis['drift']
+    _dp_per_km   = _analysis['dp_per_km']
+    _decay_v_app = _analysis['decay_v']
     hr_grade = hr_by_grade(df) if info['has_hr'] else None
     recs     = generate_coach_recommendations(profile, fi_score, drift, cad_an, info, fcmax)
     perf     = compute_performance_score(fi_score, drift, dp_per_km=_dp_per_km)

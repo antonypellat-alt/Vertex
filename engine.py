@@ -1569,3 +1569,55 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
         'action_line': "→ La base est là — ajoute une séance de fractionné court cette semaine pour monter en vitesse.",
         'share_line': "Effort maîtrisé de bout en bout. C'est rare. — @vertex.effort",
     }
+
+
+def prepare_analysis(fi: dict, elev_profile: dict, df, info: dict) -> dict:
+    """
+    [2] Logique métier extraite de app.py — Sprint 6.
+    Construit fi_score (ratio corrigé SCI-3), decay_v, dp_per_km,
+    appelle cardiac_drift, applique le flag SCI-5 q1_dplus_overloaded.
+    Retourne un dict avec toutes les valeurs calculées prêtes pour app.py.
+    """
+    import math
+
+    _dp_per_km = info['elevation_gain'] / info['distance_km'] if info.get('distance_km', 0) > 0 else 0.0
+
+    # SCI-3 : fi_score avec ratio corrigé si disponible
+    fi_score = dict(fi)
+    _corr = fi.get('decay_ratio_corrected', float('nan'))
+    if not (isinstance(_corr, float) and math.isnan(_corr)) and _corr is not None:
+        fi_score['decay_ratio'] = fi['decay_ratio_corrected']
+        fi_score['decay_pct'] = fi['decay_pct_corrected']
+
+    # [20] decay_v depuis ratio corrigé — évite faux NEGATIVE_SPLIT BVT/TDS
+    _decay_ratio_for_drift = fi_score.get('decay_ratio', 1.0)
+    if _decay_ratio_for_drift is None or (
+        isinstance(_decay_ratio_for_drift, float) and math.isnan(_decay_ratio_for_drift)
+    ):
+        _decay_ratio_for_drift = 1.0
+    _decay_v = _decay_ratio_for_drift - 1.0
+
+    # Appel cardiac_drift ou dict vide si pas de FC
+    if info.get('has_hr', False):
+        drift = cardiac_drift(df, duration_s=info['total_time_s'],
+                              dp_per_km=_dp_per_km, decay_v=_decay_v)
+    else:
+        drift = {
+            'ef1': None, 'ef2': None, 'drift_pct': None, 'quartiles': {},
+            'pattern': None, 'collapse_pct': None, 'fc_slope_bph': None,
+            'fc_q1_mean': None, 'fc_q4_mean': None, 'insufficient_data': True,
+            'decay_v': None,
+        }
+
+    # SCI-5 : flag Q1 D+ surchargé
+    _dplus_by_q = elev_profile.get('dplus_by_q', {})
+    _total_dplus = sum(_dplus_by_q.values())
+    if _total_dplus > 0 and _dplus_by_q.get('Q1', 0.0) / _total_dplus > 0.35:
+        drift['q1_dplus_overloaded'] = True
+
+    return {
+        'fi_score': fi_score,
+        'drift':    drift,
+        'dp_per_km': _dp_per_km,
+        'decay_v':  _decay_v,
+    }
