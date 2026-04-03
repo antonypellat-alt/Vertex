@@ -5,6 +5,8 @@
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
+import logging
+
 try:
     import defusedxml.ElementTree as ET
 except ImportError:
@@ -14,6 +16,8 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 from scipy.signal import savgol_filter
+
+logger = logging.getLogger("vertex.gpx")
 
 
 def haversine_vec(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
@@ -71,8 +75,8 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
             try:
                 ts = time_el.text.replace('Z', '').replace('z', '')
                 t = datetime.fromisoformat(ts) if 'T' in ts else None
-            except Exception:
-                pass
+            except Exception as _ts_err:
+                logger.debug("Timestamp GPX invalide ignoré : %r — %s", time_el.text, _ts_err)
 
         hr = None
         for hr_el in pt.iter():
@@ -81,8 +85,8 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
                     v = int(hr_el.text)
                     if 30 < v < 250:
                         hr = v
-                except Exception:
-                    pass
+                except Exception as _hr_err:
+                    logger.debug("Valeur HR ignorée : %r — %s", hr_el.text, _hr_err)
 
         cad = None
         cad_ambiguous = False
@@ -96,8 +100,8 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
                         # F3 : zone borderline 100-110 → multiplication douteuse, on flag
                         cad = v * 2 if v < 110 else v
                         cad_ambiguous = (100 <= v < 110)  # ex: 109 → 218, non garanti
-                except Exception:
-                    pass
+                except Exception as _cad_err:
+                    logger.debug("Valeur cadence ignorée : %r — %s", cad_el.text, _cad_err)
 
         rows.append({'lat': lat, 'lon': lon, 'elevation': ele, 'time': t,
                      'hr': hr, 'cadence': cad, 'cad_ambiguous': cad_ambiguous})
@@ -149,6 +153,7 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
         df['elevation_smooth'] = ele_smooth
         df['elevation_degraded'] = False
     except Exception as _sg_err:
+        logger.warning("savgol_filter échoué (window=%d) — élévation brute utilisée : %s", window, _sg_err)
         df['elevation_smooth'] = df['elevation']
         df['elevation_degraded'] = True
 

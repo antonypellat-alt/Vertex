@@ -5,10 +5,13 @@
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
+import logging
 import math
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger("vertex.engine")
 
 
 def _isnan(v) -> bool:
