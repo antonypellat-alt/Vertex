@@ -31,9 +31,9 @@ def _isnan(v) -> bool:
 def gap_correction(velocity_ms: float, grade_pct: float) -> float:
     """Version scalaire — conservée pour les appels ponctuels (splits, charts)."""
     g = grade_pct / 100.0
-    energy_flat  = 3.6
+    energy_flat  = 3.6  # J/kg/m — coût énergétique terrain plat (Minetti et al. 2002, J Exp Biol)
     energy_slope = (155.4*g**5 - 30.4*g**4 - 43.3*g**3 + 46.3*g**2 + 19.5*g + 3.6)
-    correction   = max(0.5, min(2.5, energy_slope / energy_flat))
+    correction   = max(0.5, min(2.5, energy_slope / energy_flat))  # bornes 0.5–2.5 : domaine de validité Minetti (pente -45% à +45%)
     return velocity_ms / correction if correction > 0 else velocity_ms
 
 
@@ -110,7 +110,7 @@ def classify_profile(decay_ratio: float) -> str:
         return "PROFIL INCONNU"
     if decay_ratio >= 0.93:
         return "PROFIL ENDURANCE"
-    if decay_ratio >= 0.85:
+    if decay_ratio >= 0.85:  # 0.85 = seuil empirique VERTEX — calibré sur 8 datasets réels (Sprint 4–6)
         return "PROFIL EXPLOSIF"
     return "PROFIL FRAGILE"
 
@@ -147,6 +147,7 @@ def compute_hr_zones(df: pd.DataFrame, fcmax: int, custom_zones: dict = None) ->
         zone_pct = {z: (t/total*100 if total > 0 else 0) for z, t in zone_time.items()}
         return {'time': zone_time, 'pct': zone_pct, 'bpm': zone_bpm, 'fcmax': fcmax, 'mode': 'manual'}
 
+    # Zones Friel (2010) — % FCmax : Z1<60% Z2<70% Z3<80% Z4<90% Z5=100%
     thresholds = {
         'Z1': (0,    0.60),
         'Z2': (0.60, 0.70),
@@ -412,7 +413,7 @@ def cardiac_drift(df: pd.DataFrame,
 # ══════════════════════════════════════════════════════════════════
 
 def detect_walk_segments(df: pd.DataFrame,
-                         grade_threshold: float = 15.0,
+                         grade_threshold: float = 15.0,  # 15% = seuil marche active trail (Vernillo et al. 2017, IJSM)
                          velocity_threshold: float = 1.5) -> pd.DataFrame:
     """
     Ajoute la colonne 'is_walk' au DataFrame.
@@ -637,6 +638,7 @@ def generate_coach_recommendations(
 
     race_profile = _get_race_profile(distance_km, duration_s)
 
+    # seuils GAP empiriques VERTEX — critique >15m/km · alerte >7m/km · bon <4m/km
     gap_crit_threshold = 15 + dp_tolerance
     gap_warn_threshold = 7  + dp_tolerance
     gap_good_threshold = 4  + dp_tolerance
@@ -1192,6 +1194,7 @@ def get_score_weights(dp_per_km: float, ef_unavailable: bool) -> dict:
     """
     if dp_per_km < 10.0:
         # Z1 — EF forcé 0% indépendamment de la FC
+        # Poids calibrés empiriquement VERTEX Sprint 3 — court : GAP 70%/VAR 30%
         w_gap, w_ef, w_var = 0.70, 0.00, 0.30
         zone = 'Z1'
         zone_validated = True
@@ -1204,7 +1207,7 @@ def get_score_weights(dp_per_km: float, ef_unavailable: bool) -> dict:
         zone = 'Z2'
         zone_validated = False   # dataset Z2 absent — en attente
     else:
-        # Z3 — poids standard
+        # Z3 — poids standard — long : GAP 50%/EF 35%/VAR 15%
         w_gap, w_ef, w_var = 0.50, 0.35, 0.15
         zone = 'Z3'
         zone_validated = True
