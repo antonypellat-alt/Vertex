@@ -12,6 +12,7 @@ Architecture modulaire v3.5 :
 """
 
 import math
+import pandas as pd
 from datetime import datetime
 
 import streamlit as st
