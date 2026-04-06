@@ -572,7 +572,7 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         pdf.set_draw_color(*_vcolor)
         pdf.set_line_width(1.5)
         pdf.line(15, _block_y, 15, _block_end_y)
-        pdf.set_y(max(pdf.get_y(), _block_end_y + 4))
+        pdf.set_y(max(pdf.get_y(), _block_end_y + 10))
 
     # ── SPLITS — tableau complet ──────────────────────────────────
     pdf.set_font("Courier", "", 6)
