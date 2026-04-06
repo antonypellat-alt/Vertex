@@ -343,7 +343,12 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
             self.set_fill_color(*_vcolor)
             self.rect(0, 0, 4, 297, 'F')
         def footer(self):
-            pass
+            if self.page_no() == 1:
+                self.set_xy(15, 285)
+                self.set_font("Courier", "", 5)
+                self.set_text_color(*C_DIM)
+                self.cell(85, 4, clean("Analyse algorithmique -- non validee cliniquement."), border=0)
+                self.cell(0, 4, clean("1/2"), border=0, align="R", ln=True)
 
     pdf = VertexPDF()
     pdf.set_compression(False)
@@ -481,13 +486,13 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
 
     cap_y = int(pdf.get_y()) + 2  # suit le nom de course, jamais de collision
     if info.get('has_hr') and info.get('hr_mean') is not None:
-        capsule(15,  cap_y, 52, "FC MOY",     f"{int(info['hr_mean'])} bpm",                            C_CYAN)
-        capsule(70,  cap_y, 52, "ALLURE GAP", (v_to_pace(flat_v) if flat_v else '--:--') + "/km",       C_AMBER)
-        capsule(125, cap_y, 52, "D+",          f"{d_plus} m",                                           C_MID)
+        capsule(15,  cap_y, 60, "FC MOY",     f"{int(info['hr_mean'])} bpm",                            C_CYAN)
+        capsule(78,  cap_y, 60, "ALLURE GAP", (v_to_pace(flat_v) if flat_v else '--:--') + "/km",       C_AMBER)
+        capsule(141, cap_y, 54, "D+",          f"{d_plus} m",                                           C_MID)
     else:
-        capsule(15,  cap_y, 52, "DISTANCE",   f"{dist_km:.1f} km",                                     C_CYAN)
-        capsule(70,  cap_y, 52, "ALLURE MOY", v_to_pace(info.get('avg_velocity_ms', 0)) + "/km",       C_AMBER)
-        capsule(125, cap_y, 52, "D+",          f"{d_plus} m",                                           C_MID)
+        capsule(15,  cap_y, 60, "DISTANCE",   f"{dist_km:.1f} km",                                     C_CYAN)
+        capsule(78,  cap_y, 60, "ALLURE MOY", v_to_pace(info.get('avg_velocity_ms', 0)) + "/km",       C_AMBER)
+        capsule(141, cap_y, 54, "D+",          f"{d_plus} m",                                           C_MID)
 
     # Profil + allure plat
     pdf.set_xy(15, cap_y + 17)
@@ -534,7 +539,7 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         pdf.rect(15, _block_y, 180, base_h, 'F')
         pdf.set_draw_color(*_vcolor)
         pdf.set_line_width(1.5)
-        pdf.line(15, _block_y, 15, _block_y + base_h)
+        pdf.line(15, _block_y, 15, _block_y + base_h)  # sera ré-étendu après contenu
 
         pdf.set_xy(19, _block_y + 2)
         pdf.set_font("Courier", "", 5)
@@ -564,6 +569,14 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
             pdf.multi_cell(174, 4, clean(rec0.get('body', '')))
 
         pdf.ln(2)
+        _block_end_y = pdf.get_y()
+        if _block_end_y > _block_y + base_h:
+            pdf.set_fill_color(*C_BG2)
+            pdf.rect(15, _block_y + base_h, 180, _block_end_y - (_block_y + base_h), 'F')
+        pdf.set_draw_color(*_vcolor)
+        pdf.set_line_width(1.5)
+        pdf.line(15, _block_y, 15, _block_end_y)
+        pdf.set_y(max(pdf.get_y(), _block_end_y + 4))
 
     # ── SPLITS — tableau complet ──────────────────────────────────
     pdf.set_font("Courier", "", 6)
@@ -639,8 +652,8 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
             pdf.cell(col_w[2], 3.5, clean(sp.get('gap',  '--')), border=0)
             pdf.set_text_color(*C_CYAN)
             pdf.cell(col_w[3], 3.5, clean(f"+{sp.get('d_pos', 0)}m"), border=0)
-            pdf.set_text_color(*C_RED)
-            pdf.cell(col_w[4], 3.5, clean(f"-{sp.get('d_neg', 0)}m"), border=0)
+            pdf.set_text_color(*C_MID)
+            pdf.cell(col_w[4], 3.5, clean(f"{sp.get('d_neg', 0)}m"), border=0)
             if has_hr:
                 hr_val = sp.get('hr')
                 hr_c   = C_RED if hr_val and hr_val > fcmax * 0.92 else C_MID
@@ -656,22 +669,16 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         # Légende
         pdf.ln(2)
         pdf.set_font("Courier", "", 5)
+        _leg_w = col_w[0] + col_w[1]
         pdf.set_text_color(*C_RED)
-        pdf.cell(30, 3, clean("v KM LENT"), border=0)
+        pdf.cell(_leg_w, 3, clean("v KM LENT"), border=0)
         pdf.set_text_color(*C_CYAN)
-        pdf.cell(30, 3, clean("^ KM RAPIDE"), border=0)
+        pdf.cell(_leg_w, 3, clean("^ KM RAPIDE"), border=0)
         pdf.set_text_color(*C_AMBER)
-        pdf.cell(30, 3, clean("o FC MAX"), border=0)
+        pdf.cell(_leg_w, 3, clean("o FC MAX"), border=0)
         pdf.ln()
 
 
-
-    # ── Footer page 1 ─────────────────────────────────────────────
-    pdf.set_xy(15, 285)
-    pdf.set_font("Courier", "", 5)
-    pdf.set_text_color(*C_DIM)
-    pdf.cell(85, 4, clean("Analyse algorithmique -- non validee cliniquement."), border=0)
-    pdf.cell(0, 4, clean("1/2"), border=0, align="R", ln=True)
 
     # ══════════════════════════════════════════════════════════════
     # PAGE 2 — ANALYSE GRAPHIQUE + RECOS
@@ -681,7 +688,7 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     # ── Rappel en-tête page 2 ─────────────────────────────────────
     pdf.set_xy(15, 15)
     pdf.set_font("Courier", "", 6)
-    pdf.set_text_color(*C_DIM)
+    pdf.set_text_color(*C_MID)
     _score_display = str(_score) if _score is not None else "--"
     _recall = f"VERTEX  ·  {info.get('name','').upper()}  ·  Score {_score_display}/100  ·  {_vlabel}"
     pdf.cell(0, 4, clean(_recall), ln=True)
@@ -729,6 +736,14 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         else:
             dp_str = "N/A"
         pdf.cell(0, 4, clean(f"Tenue d'allure Q4/Q1 : {dr_str}   |   Perte de vitesse : {dp_str}"), ln=True)
+        pdf.ln(1)
+        pdf.set_font("Courier", "", 5)
+        pdf.set_text_color(*C_CYAN)
+        pdf.cell(40, 3, clean("CYAN = allure tenue"), border=0)
+        pdf.set_text_color(*C_AMBER)
+        pdf.cell(40, 3, clean("ORANGE = Q3 surveillance"), border=0)
+        pdf.set_text_color(*C_RED)
+        pdf.cell(0, 3, clean("ROUGE = decrochage Q4"), border=0, ln=True)
     else:
         pdf.set_font("Helvetica", "", 7)
         pdf.set_text_color(*C_DIM)
@@ -813,7 +828,17 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
             d_pct = drift.get('drift_pct')
 
             if d_pct is not None:
-                d_col = C_RED if d_pct < -5 else C_AMBER if d_pct < -2 else C_CYAN
+                _pattern_severity = {
+                    'STABLE':         C_CYAN,
+                    'NEGATIVE_SPLIT': C_CYAN,
+                    'DRIFT':          C_AMBER,
+                    'DRIFT-CARDIO':   C_RED,
+                    'DRIFT-NEURO':    C_AMBER,
+                    'COLLAPSE A':     C_RED,
+                    'COLLAPSE B':     C_RED,
+                    'COLLAPSE':       C_RED,
+                }
+                d_col = _pattern_severity.get(_pattern, C_AMBER)
                 _pattern_labels = {
                     'DRIFT':          'DERIVE CARDIAQUE',
                     'STABLE':         'CARDIAQUE STABLE',
@@ -918,6 +943,8 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
             ln=True)
 
     # ── RECOMMANDATIONS COACH — recs[1:3] uniquement (rec[0] déjà en p1) ──
+    if pdf.get_y() > 240:
+        pdf.add_page()
     recs_p2 = recs[1:3]
     if recs_p2:
         section("RECOMMANDATIONS COACH")
