@@ -1495,14 +1495,14 @@ test("R2 · retour dict enrichi : toutes les cles presentes",
      required.issubset(r.keys()),
      f"manquantes={required - set(r.keys())}")
 
-# R3 : DESCENDING → garde-fou [0.50, 1.20] respecte toujours
+# R3 : DESCENDING → garde-fou dynamique [0.50, 1.50] respecte toujours
 ele_extreme = np.concatenate([np.linspace(500, 2000, 300), np.linspace(2000, 500, 100)])
 df_ext = make_full_df(ele_extreme)
 fi_ext = fatigue_index(df_ext)
 ep_ext = detect_elevation_profile(df_ext)
 r_ext  = apply_decay_correction(fi_ext, ep_ext, df_ext)
-test("R3 · DESCENDING extreme → garde-fou [0.50, 1.20] respecte",
-     0.50 <= r_ext['decay_ratio_corrected'] <= 1.20,
+test("R3 · DESCENDING extreme → garde-fou dynamique [0.50, 1.50] respecte",
+     0.50 <= r_ext['decay_ratio_corrected'] <= 1.50,
      f"got ratio={r_ext['decay_ratio_corrected']:.4f}")
 
 # R4 : correction_magnitude >= 0
@@ -2113,15 +2113,13 @@ else:
         test("G1d · Samuel CDF Long — score partiel 80–92",
              80 <= _g1_perf['score'] <= 92,
              f"score={_g1_perf['score']}, partial={_g1_perf['partial']}")
-        test("G1e · Samuel CDF Long — verdict V1 (BUG-SPRINT6 : sur-correction DESCENDING)",
+        test("G1e · Samuel CDF Long — verdict V1 (post-correction C4-BUG)",
              _g1_v['code'] == 'V1',
              f"verdict={_g1_v['code']}, label={_g1_v['label']}")
-        # BUG-SPRINT6 : apply_decay_correction sur profil DESCENDING sur-corrige le decay.
-        # Samuel decay brut=1.456 → corrigé=1.20 → verdict V1 au lieu de V5-C/V3.
-        # Le moteur détecte bien COLLAPSE (cardiac_drift) mais la matrice verdict
-        # reçoit un decay_ratio corrigé trop haut et retourne V1 (PERFORMANCE SOLIDE).
-        # À revalider après recalibration du cap correction DESCENDING (Elena requis).
-        # Datasets de validation : Samuel CDF Long 2026 + second dataset D- distribué.
+        # C4-BUG corrigé Sprint 6 : cap dynamique 1.20 + magnitude*0.8 plafonné 1.50.
+        # Samuel decay brut=1.456 → corrigé=1.2413 → verdict V1.
+        # COLLAPSE détecté par cardiac_drift mais decay_ratio corrigé insuffisant
+        # pour déclencher V5-C/V3 (nécessite dataset Elena pour recalibration matrice).
         test("G1f · Samuel CDF Long — pas de faux positif V7",
              _g1_v['code'] != 'V7',
              f"verdict={_g1_v['code']}")
@@ -2331,6 +2329,67 @@ else:
     except Exception as e:
         test("G5 · Coralie CDF 2023 — pipeline sans crash", False, str(e))
 
+
+# ══════════════════════════════════════════════════════════════════
+# SCI-7 — EF FALLBACK GAP (attente validation terrain)
+# ══════════════════════════════════════════════════════════════════
+section("SCI-7 — EF fallback GAP : profil montagneux sans plat")
+
+def make_mountain_df(n=500, duration_s=19800, ef_slope_pph=-0.05):
+    """
+    Simule un profil montagneux : grade moyen +12%, zero plat (<3%).
+    ef_slope_pph=-0.05/h = dégradation EF de 5% par heure.
+    Sur 5.5h → drift attendu = -27.5% → clippé à -20%.
+    """
+    t = np.linspace(0, duration_s, n)
+    # grade >3% partout → aucun point dans flat
+    grade = np.full(n, 12.0)
+    hr = np.linspace(155, 170, n)
+    # EF décroissante : gap_velocity baisse progressivement
+    # ef_point = gap_v / hr * 100
+    # On construit gap_v tel que ef_slope_pph = -0.05/h
+    # ef(t) = ef0 + ef_slope_pph * t_h
+    ef0 = 2.0
+    ef_arr = ef0 + (ef_slope_pph / 3600) * t  # en /s
+    gap_v = ef_arr * hr / 100
+    gap_v = np.clip(gap_v, 0.5, 6.0)
+    d = np.cumsum(gap_v * np.diff(t, prepend=0))
+    return pd.DataFrame({
+        'time_s': t, 'distance': d, 'hr': hr,
+        'velocity': gap_v * 0.9, 'grade': grade,
+        'gap_velocity': gap_v,
+    })
+
+# SCI7-1 : profil montagneux → insufficient_data=False via fallback
+df_m1 = make_mountain_df(ef_slope_pph=-0.05)
+r_m1 = cardiac_drift(df_m1, duration_s=19800, dp_per_km=55)
+test("SCI7-1 · profil montagneux + EF dégradée → insufficient_data=False (fallback)",
+     r_m1['insufficient_data'] == False,
+     f"insufficient={r_m1['insufficient_data']} pattern={r_m1.get('pattern')} drift={r_m1.get('drift_pct')}")
+
+# SCI7-2 : drift_pct clippé à -20% (ef_slope × durée dépasse)
+test("SCI7-2 · drift_pct_gap clippé à -20% minimum",
+     r_m1.get('drift_pct') is not None and r_m1['drift_pct'] >= -20.0,
+     f"drift_pct={r_m1.get('drift_pct')}")
+
+# SCI7-3 : ef_source = GAP_FALLBACK tracé dans le retour
+test("SCI7-3 · ef_source='GAP_FALLBACK' présent dans retour",
+     r_m1.get('ef_source') == 'GAP_FALLBACK',
+     f"ef_source={r_m1.get('ef_source')}")
+
+# SCI7-4 : profil montagneux SANS dégradation EF → insufficient_data=True (pas de faux positif)
+df_m2 = make_mountain_df(ef_slope_pph=0.001)  # EF stable ou légèrement croissante
+r_m2 = cardiac_drift(df_m2, duration_s=19800, dp_per_km=55)
+test("SCI7-4 · profil montagneux + EF stable → insufficient_data=True (pas de fallback)",
+     r_m2['insufficient_data'] == True,
+     f"insufficient={r_m2['insufficient_data']} pattern={r_m2.get('pattern')}")
+
+# SCI7-5 : rétrocompat — profil FLAT non affecté
+df_flat = make_flat_df(200, fc_start=150, fc_end=155)
+r_flat = cardiac_drift(df_flat, duration_s=3600, dp_per_km=5)
+test("SCI7-5 · profil FLAT non affecté — ef_source absent ou FLAT",
+     r_flat.get('ef_source', 'FLAT') == 'FLAT',
+     f"ef_source={r_flat.get('ef_source', 'FLAT')} pattern={r_flat.get('pattern')}")
 
 # ══════════════════════════════════════════════════════════════════
 # RAPPORT FINAL

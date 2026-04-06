@@ -234,13 +234,9 @@ def cardiac_drift(df: pd.DataFrame,
         (df['hr'] > 80)
     ].copy()
 
-    if len(flat) < 20:
-        return _empty
-
-    flat = flat.sort_values('distance').reset_index(drop=True)
-
-    # SCI-6 : série EF globale sur tous points valides (pas seulement flat)
+    # SCI-6/SCI-7 : série EF globale sur tous points valides (pas seulement flat)
     # ef_point = gap_velocity / hr — coût cardiaque corrigé relief
+    # Calculé ici avant les early returns pour être accessible au fallback GAP (SCI-7)
     all_valid = df[
         (df['velocity'] > 0.3) &
         (df['hr'] > 80)
@@ -249,10 +245,43 @@ def cardiac_drift(df: pd.DataFrame,
         all_valid['gap_velocity'] = all_valid['velocity']
     all_valid['ef_point'] = all_valid['gap_velocity'] / all_valid['hr'] * 100
 
+    t_ef   = all_valid['time_s'].to_numpy()
+    ef_arr_pre = all_valid['ef_point'].to_numpy()
+    if len(t_ef) > 10:
+        coeffs_ef_pre = np.polyfit(t_ef, ef_arr_pre, 1)
+        ef_slope_pph  = float(coeffs_ef_pre[0]) * 3600
+    else:
+        ef_slope_pph = 0.0
+
+    def _sci7_fallback():
+        """SCI-7 : fallback EF GAP — plat insuffisant mais ef_slope_pph disponible."""
+        duration_h = (duration_s / 3600) if duration_s else 1.0
+        if len(t_ef) > 10 and ef_slope_pph < -0.005:
+            drift_pct_gap = float(ef_slope_pph * duration_h * 100)
+            drift_pct_gap = max(-20.0, drift_pct_gap)  # clip plancher
+            if drift_pct_gap < get_drift_ef_threshold(duration_s if duration_s else 3600):
+                _pattern_gap = 'DRIFT'
+            else:
+                _pattern_gap = 'STABLE'
+            return {
+                **_empty,
+                'drift_pct':        round(drift_pct_gap, 2),
+                'ef_slope_pph':     ef_slope_pph,
+                'pattern':          _pattern_gap,
+                'insufficient_data': False,
+                'ef_source':        'GAP_FALLBACK',
+            }
+        return _empty
+
+    if len(flat) < 20:
+        return _sci7_fallback()
+
+    flat = flat.sort_values('distance').reset_index(drop=True)
+
     # Minimum 10 min de plat : moins de données = EF statistiquement non fiable
     flat_duration_min = (flat['time_s'].max() - flat['time_s'].min()) / 60
     if flat_duration_min < 10:
-        return _empty
+        return _sci7_fallback()
 
     # EF par demi-course (rétrocompat)
     # KNOWN LIMITATION — BUG-3 Sprint 4A :
@@ -325,15 +354,7 @@ def cardiac_drift(df: pd.DataFrame,
     else:
         fc_slope_bph = 0.0
 
-    # SCI-6 : régression EF/temps sur tous points valides — Elena v1.6
-    # Pente négative = dégradation coût cardiaque à effort réel, indépendante du relief
-    t_ef   = all_valid['time_s'].to_numpy()
-    ef_arr = all_valid['ef_point'].to_numpy()
-    if len(t_ef) > 10:
-        coeffs_ef = np.polyfit(t_ef, ef_arr, 1)
-        ef_slope_pph = float(coeffs_ef[0]) * 3600  # variation EF par heure
-    else:
-        ef_slope_pph = 0.0
+    # SCI-6/SCI-7 : ef_slope_pph calculé en amont (avant check flat_duration_min)
 
     # fc_delta_pct Q1 → Q4
     if fc_q1_mean and fc_q4_mean and fc_q1_mean > 0:
@@ -1151,7 +1172,8 @@ def apply_decay_correction(fi: dict, elev_profile: dict, df: pd.DataFrame) -> di
             if len(q4_all) > 5 and not _isnan(q1_original):
                 q4_corrected = float(q4_all.mean())
             else:
-                fi_out['decay_ratio_corrected'] = max(0.50, min(0.89, original_ratio)) if not _isnan(original_ratio) else original_ratio
+                _cap_fb = min(1.20 + elev_profile.get('magnitude', 0.0) * 0.8, 1.50)
+                fi_out['decay_ratio_corrected'] = max(0.50, min(_cap_fb, original_ratio)) if not _isnan(original_ratio) else original_ratio
                 fi_out['decay_pct_corrected']   = (1 - fi_out['decay_ratio_corrected']) * 100 if not _isnan(fi_out['decay_ratio_corrected']) else float('nan')
                 fi_out['v7_inhibited']           = True
                 return fi_out
@@ -1161,8 +1183,9 @@ def apply_decay_correction(fi: dict, elev_profile: dict, df: pd.DataFrame) -> di
             return fi_out
 
     ratio_corrected = q4_corrected / q1_ref
-    # Garde-fou [0.50, 1.20] — s'applique aussi en cas de profil biaise extreme
-    ratio_corrected = max(0.50, min(1.20, ratio_corrected))
+    # Garde-fou dynamique [0.50, cap_dynamic] — profil DESCENDING leve le plafond selon magnitude
+    cap_dynamic = min(1.20 + elev_profile.get('magnitude', 0.0) * 0.8, 1.50)
+    ratio_corrected = max(0.50, min(cap_dynamic, ratio_corrected))
 
     fi_out['decay_ratio_corrected']  = round(ratio_corrected, 4)
     fi_out['decay_pct_corrected']    = round((1 - ratio_corrected) * 100, 2)
@@ -1311,6 +1334,7 @@ def compute_performance_score(fi: dict, drift: dict, dp_per_km: float = 0.0) -> 
 
     ef_unavailable = insufficient or pattern == 'COLLAPSE' or pattern == 'STABLE'
 
+    ef_source = drift.get('ef_source', 'FLAT')
     if ef_unavailable or drift_pct is None:
         score_ef = None
         partial  = True
@@ -1318,6 +1342,11 @@ def compute_performance_score(fi: dict, drift: dict, dp_per_km: float = 0.0) -> 
             partial_reason = "Score partiel — effondrement CV détecté (EF non interprétable)"
         else:
             partial_reason = "Score partiel — terrain insuffisamment plat pour calculer l'EF"
+    elif ef_source == 'GAP_FALLBACK':
+        # SCI-7 : EF estimée via régression GAP globale — signal valide mais provisoire
+        score_ef = int(round(max(0, min(100, (1 + drift_pct / 20) * 100))))
+        partial  = True
+        partial_reason = "Score EF estimé — profil montagneux (validation en cours)"
     else:
         # drift_pct ∈ [-20, 0] → score ∈ [0, 100]
         # Au-delà de -20% on plafonne à 0
