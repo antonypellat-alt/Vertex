@@ -533,12 +533,8 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     _action_valid = bool(_action_line and len(_action_line) > 20)
     _rec0_valid   = len(recs) > 0
 
-    if _action_valid or _rec0_valid:
-        base_h = 8
-        if _action_valid:
-            base_h += 8
-        if _rec0_valid:
-            base_h += 14
+    if _rec0_valid:
+        base_h = 8 + 14
 
         _block_y = pdf.get_y()
         pdf.set_fill_color(*C_BG2)
@@ -551,12 +547,6 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         pdf.set_font("Courier", "", 5)
         pdf.set_text_color(*C_DIM)
         pdf.cell(0, 4, clean("CE QUE TU DOIS RETENIR"), ln=True)
-
-        if _action_valid:
-            pdf.set_x(19)
-            pdf.set_font("Helvetica", "B", 9)
-            pdf.set_text_color(*_vcolor)
-            pdf.cell(0, 4, clean(f"-> {_action_line}"), ln=True)
 
         if _rec0_valid:
             rec0 = recs[0]
