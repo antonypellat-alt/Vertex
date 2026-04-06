@@ -349,6 +349,11 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
                 self.set_text_color(*C_DIM)
                 self.cell(85, 4, clean("Analyse algorithmique -- non validee cliniquement."), border=0)
                 self.cell(0, 4, clean("1/2"), border=0, align="R", ln=True)
+            elif self.page_no() == 2:
+                self.set_xy(15, 285)
+                self.set_font("Courier", "", 5)
+                self.set_text_color(*C_DIM)
+                self.cell(0, 4, clean("2/2"), border=0, align="R", ln=True)
 
     pdf = VertexPDF()
     pdf.set_compression(False)
@@ -503,6 +508,7 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
     pdf.cell(0, 4, clean(f"{profile}  |  Allure moy : {avg_pace}/km  |  Allure plat : {flat_pace}/km  |  Temps : {h_t}h{m_t:02d}"), ln=True)
 
     if info.get('hr_mean'):
+        pdf.set_x(15)
         pdf.set_font("Courier", "", 6)
         pdf.set_text_color(*C_DIM)
         pdf.cell(0, 4, clean(
@@ -991,10 +997,6 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         _footer += f"  |  {email}"
     pdf.cell(0, 3, clean(_footer), ln=True, align="C")
 
-    # ── Footer page 2 ─────────────────────────────────────────────
-    pdf.set_xy(15, 285)
-    pdf.set_font("Courier", "", 5)
-    pdf.set_text_color(*C_DIM)
-    pdf.cell(0, 4, clean("2/2"), border=0, align="R", ln=True)
+    # ── Footer page 2 géré via footer() ───────────────────────────
 
     return bytes(pdf.output())
