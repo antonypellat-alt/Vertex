@@ -88,10 +88,20 @@ def fatigue_index(df: pd.DataFrame) -> dict:
     q1 = quartiles.get('Q1', 0)
     q4 = quartiles.get('Q4', 0)
     ratio = q4 / q1 if q1 and q1 > 0 else float('nan')
+    # q_max : quartile avec le GAP le plus élevé parmi Q2, Q3, Q4 (Q1 toujours exclu — biaisé montée initiale)
+    _qcandidates = {k: v for k, v in quartiles.items() if k != 'Q1' and not _isnan(v) and v > 0}
+    if _qcandidates:
+        q_max_key = max(_qcandidates, key=lambda k: _qcandidates[k])
+        q_max_val = _qcandidates[q_max_key]
+    else:
+        q_max_key = 'Q4'
+        q_max_val = quartiles.get('Q4', float('nan'))
     return {
         'quartiles': quartiles,
         'decay_ratio': ratio,
         'decay_pct': (1 - ratio)*100 if not _isnan(ratio) else float('nan'),
+        'q_max_key': q_max_key,
+        'q_max_val': q_max_val,
     }
 
 
@@ -1180,6 +1190,28 @@ def apply_decay_correction(fi: dict, elev_profile: dict, df: pd.DataFrame) -> di
     q1_original = fi.get('quartiles', {}).get('Q1', float('nan'))
 
     if profile == 'MIXED':
+        q_max_key = fi.get('q_max_key', 'Q4')
+        q_max_val = fi.get('q_max_val', float('nan'))
+        if q_max_key != 'Q4' and not _isnan(q_max_val) and q_max_val > 0:
+            # Q_max n'est pas Q4 (typiquement Q3) : descente concentrée avant le dernier quartile
+            # → decay pertinent = Q4 / Q_max (Q4 rapporté au meilleur quartile réel)
+            q4_val = fi.get('quartiles', {}).get('Q4', float('nan'))
+            if not _isnan(q4_val) and q4_val > 0:
+                decay_ratio_mixed = q4_val / q_max_val
+                _cap = min(1.20 + elev_profile.get('magnitude', 0.0) * 0.8, 1.50)
+                ratio_corrected = max(0.50, min(_cap, decay_ratio_mixed))
+                fi_out['decay_ratio_corrected']  = round(ratio_corrected, 4)
+                fi_out['decay_pct_corrected']    = round((1 - ratio_corrected) * 100, 2)
+                fi_out['correction_applied']     = True
+                fi_out['correction_magnitude']   = round(abs(ratio_corrected - original_ratio), 4)
+                fi_out['decay_mode']             = 'Q4/Qmax'
+                fi_out['q_max_key']              = q_max_key
+                fi_out['q_max_val']              = round(q_max_val, 4)
+                return fi_out
+        # q_max_key == 'Q4' : descente vraiment concentrée en fin → logique standard sur plat
+        fi_out['decay_mode'] = 'Q4/Q1_corrected'
+        fi_out['q_max_key']  = q_max_key
+        fi_out['q_max_val']  = round(q_max_val, 4) if not _isnan(q_max_val) else q_max_val
         # Q4 biaise par descente ET Q1 biaise par montee → corriger les deux sur plat
         # Si Q1 n'a pas assez de plat, repli sur q1_original (même comportement que DESCENDING)
         q4_corrected = q_flat_gap(4)
@@ -1576,7 +1608,13 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
         }
 
     # ── V3 : Dégradation progressive ─────────────────────────────
-    if not _isnan(decay_ratio) and 0.80 <= decay_ratio < 0.90:
+    # Seuil adapté au mode decay :
+    # Q4/Q1 standard (FLAT/ASC/DESC) : [0.80, 0.90[ — calibration Sprint 4–6
+    # Q4/Qmax (MIXED) : [0.75, 0.85[ — ratio structurellement plus bas vs peak (Elena SCI-8)
+    _decay_mode = fi.get('decay_mode', 'Q4/Q1')
+    _v3_lo = 0.75 if _decay_mode == 'Q4/Qmax' else 0.80
+    _v3_hi = 0.85 if _decay_mode == 'Q4/Qmax' else 0.90
+    if not _isnan(decay_ratio) and _v3_lo <= decay_ratio < _v3_hi:
         dp = decay_pct if not _isnan(decay_pct) else 0
         return {
             'code':  'V3',

@@ -2158,9 +2158,11 @@ else:
         test("G2b · Dylan CDF Court — distance 26–31 km",
              26.0 <= _g2_info['distance_km'] <= 31.0,
              f"distance={_g2_info['distance_km']:.1f} km")
-        test("G2c · Dylan CDF Court — score ≥ 65 (SCI-8 MIXED)",
-             _g2_perf['score'] >= 65,
+        test("G2c · Dylan CDF Court — score ≥ 50 (SCI-8 MIXED Q4/Qmax)",
+             _g2_perf['score'] >= 50,
              f"score={_g2_perf['score']}")
+             # SCI-8 recalibration : Q4/Qmax=0.870 sans EF → score~56 (vs 92 ancien Q4/Q1 gonflé)
+             # Dylan "crampes mais course tenue" → V2 cohérent. ≥65 était basé sur ratio clippé ~1.35.
         test("G2d · Dylan CDF Court — verdict V2 (SCI-8 MIXED)",
              _g2_v['code'] == 'V2',
              f"verdict={_g2_v['code']}, label={_g2_v['label']}")
