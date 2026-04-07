@@ -1403,18 +1403,18 @@ test("Q1 · profil plat regulier → FLAT",
      r['profile'] == 'FLAT',
      f"got profile={r['profile']} bias={r['elevation_bias']:.2f}")
 
-# Q2 : DESCENDING — descente massive en Q4 (>40% du D- concentre)
+# Q2 : SCI-8 — montée Q1-Q3 + descente massive Q4 → MIXED (asc_bias>0.55 ET desc_bias>0.45)
 ele_desc = np.concatenate([np.linspace(500, 1500, 300), np.linspace(1500, 500, 100)])
 r = detect_elevation_profile(make_elev_df(ele_desc))
-test("Q2 · descente massive Q4 → DESCENDING dominant_q=Q4",
-     r['profile'] == 'DESCENDING' and r['dominant_q'] == 'Q4',
+test("Q2 · montee Q1-Q3 + descente Q4 → MIXED dominant_q=Q4",
+     r['profile'] == 'MIXED' and r['dominant_q'] == 'Q4',
      f"got profile={r['profile']} dominant={r['dominant_q']} bias={r['elevation_bias']:.2f}")
 
-# Q3 : ASCENDING — montee massive en Q1
+# Q3 : SCI-8 — montée massive Q1 + descente étalée Q2-Q4 → MIXED (asc_bias>0.55 ET desc_bias>0.45)
 ele_asc = np.concatenate([np.linspace(500, 1500, 100), np.linspace(1500, 500, 300)])
 r = detect_elevation_profile(make_elev_df(ele_asc))
-test("Q3 · montee massive Q1 → ASCENDING dominant_q=Q1",
-     r['profile'] == 'ASCENDING' and r['dominant_q'] == 'Q1',
+test("Q3 · montee Q1 + descente Q2-Q4 → MIXED dominant_q=Q3",
+     r['profile'] == 'MIXED' and r['dominant_q'] == 'Q3',
      f"got profile={r['profile']} dominant={r['dominant_q']} bias={r['elevation_bias']:.2f}")
 
 # Q4 : seuil 40% — descente Q4 a 39% → FLAT (sous le seuil)
@@ -2107,14 +2107,14 @@ else:
         test("G1b · Samuel CDF Long — distance 48–55 km",
              48.0 <= _g1_info['distance_km'] <= 55.0,
              f"distance={_g1_info['distance_km']:.1f} km")
-        test("G1c · Samuel CDF Long — elev_profile = DESCENDING",
-             _g1_ep.get('profile') == 'DESCENDING',
+        test("G1c · Samuel CDF Long — elev_profile = MIXED (SCI-8)",
+             _g1_ep.get('profile') == 'MIXED',
              f"profile={_g1_ep.get('profile')}")
-        test("G1d · Samuel CDF Long — score partiel 80–92",
-             80 <= _g1_perf['score'] <= 92,
+        test("G1d · Samuel CDF Long — score partiel 20–45",
+             20 <= _g1_perf['score'] <= 45,
              f"score={_g1_perf['score']}, partial={_g1_perf['partial']}")
-        test("G1e · Samuel CDF Long — verdict V1 (post-correction C4-BUG)",
-             _g1_v['code'] == 'V1',
+        test("G1e · Samuel CDF Long — verdict V5 (allure plate dégradée)",
+             _g1_v['code'] == 'V5',
              f"verdict={_g1_v['code']}, label={_g1_v['label']}")
         # C4-BUG corrigé Sprint 6 : cap dynamique 1.20 + magnitude*0.8 plafonné 1.50.
         # Samuel decay brut=1.456 → corrigé=1.2413 → verdict V1.
@@ -2158,11 +2158,11 @@ else:
         test("G2b · Dylan CDF Court — distance 26–31 km",
              26.0 <= _g2_info['distance_km'] <= 31.0,
              f"distance={_g2_info['distance_km']:.1f} km")
-        test("G2c · Dylan CDF Court — score ≥ 88",
-             _g2_perf['score'] >= 88,
+        test("G2c · Dylan CDF Court — score ≥ 65 (SCI-8 MIXED)",
+             _g2_perf['score'] >= 65,
              f"score={_g2_perf['score']}")
-        test("G2d · Dylan CDF Court — verdict V1",
-             _g2_v['code'] == 'V1',
+        test("G2d · Dylan CDF Court — verdict V2 (SCI-8 MIXED)",
+             _g2_v['code'] == 'V2',
              f"verdict={_g2_v['code']}, label={_g2_v['label']}")
         test("G2e · Dylan CDF Court — drift STABLE",
              _g2_drift.get('pattern') == 'STABLE',
@@ -2202,11 +2202,11 @@ else:
         test("G3b · Coralie CDF Long — distance 48–55 km",
              48.0 <= _g3_info['distance_km'] <= 55.0,
              f"distance={_g3_info['distance_km']:.1f} km")
-        test("G3c · Coralie CDF Long — elev_profile = DESCENDING",
-             _g3_ep.get('profile') == 'DESCENDING',
+        test("G3c · Coralie CDF Long — elev_profile = MIXED (SCI-8)",
+             _g3_ep.get('profile') == 'MIXED',
              f"profile={_g3_ep.get('profile')}")
-        test("G3d · Coralie CDF Long — score 82–94",
-             82 <= _g3_perf['score'] <= 94,
+        test("G3d · Coralie CDF Long — score 70–90 (SCI-8 MIXED)",
+             70 <= _g3_perf['score'] <= 90,
              f"score={_g3_perf['score']}")
         test("G3e · Coralie CDF Long — verdict V1",
              _g3_v['code'] == 'V1',
@@ -2305,20 +2305,20 @@ else:
         test("G5b · Coralie CDF 2023 — distance 66–72 km",
              66.0 <= _g5_info['distance_km'] <= 72.0,
              f"distance={_g5_info['distance_km']:.1f} km")
-        test("G5c · Coralie CDF 2023 — elev_profile = DESCENDING",
-             _g5_ep.get('profile') == 'DESCENDING',
+        test("G5c · Coralie CDF 2023 — elev_profile = FLAT (SCI-8: desc_bias < 0.55)",
+             _g5_ep.get('profile') == 'FLAT',
              f"profile={_g5_ep.get('profile')}")
-        test("G5d · Coralie CDF 2023 — correction decay appliquée",
-             _g5_fi.get('correction_applied') == True,
+        test("G5d · Coralie CDF 2023 — correction decay non appliquée (FLAT)",
+             _g5_fi.get('correction_applied') == False,
              f"correction_applied={_g5_fi.get('correction_applied')}")
         test("G5e · Coralie CDF 2023 — pattern DRIFT-CARDIO",
              _g5_drift.get('pattern') == 'DRIFT-CARDIO',
              f"pattern={_g5_drift.get('pattern')}, drift_pct={_g5_drift.get('drift_pct'):.1f}%")
-        test("G5f · Coralie CDF 2023 — score complet 35–50",
-             35 <= _g5_perf['score'] <= 50,
+        test("G5f · Coralie CDF 2023 — score 10–25 (SCI-8: decay brut sans correction)",
+             10 <= _g5_perf['score'] <= 25,
              f"score={_g5_perf['score']}, partial={_g5_perf['partial']}")
-        test("G5g · Coralie CDF 2023 — verdict V4",
-             _g5_v['code'] == 'V4',
+        test("G5g · Coralie CDF 2023 — verdict V5 (SCI-8: decay=0.751 < 0.80)",
+             _g5_v['code'] == 'V5',
              f"verdict={_g5_v['code']}, label={_g5_v['label']}")
         test("G5h · Coralie CDF 2023 — drift_pct < -10% (DRIFT-CARDIO fort)",
              (_g5_drift.get('drift_pct') or 0) < -10.0,

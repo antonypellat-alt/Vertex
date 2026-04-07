@@ -1016,6 +1016,7 @@ def detect_elevation_profile(df: pd.DataFrame) -> dict:
         return {
             'profile': 'FLAT', 'elevation_bias': 0.0, 'magnitude': 0.0,
             'dominant_q': 'Q1', 'dplus_by_q': {}, 'dminus_by_q': {},
+            'asc_bias': 0.0, 'desc_bias': 0.0, 'net_balance': 0.0,
         }
 
     q_size = dist_total / 4
@@ -1036,60 +1037,85 @@ def detect_elevation_profile(df: pd.DataFrame) -> dict:
     total_dplus  = sum(dplus_by_q.values())
     total_dminus = sum(dminus_by_q.values())
 
-    # Quartile dominant en descente (biais decay-bas)
-    if total_dminus > 10:
-        dminus_fracs = {q: v / total_dminus for q, v in dminus_by_q.items()}
-        dominant_q_desc = max(dminus_fracs, key=dminus_fracs.get)
-        max_frac_desc   = dminus_fracs[dominant_q_desc]
-    else:
-        dominant_q_desc, max_frac_desc = 'Q1', 0.0
+    # SCI-8 — métriques de biais cumulé par moitié de parcours
+    asc_bias  = (dplus_by_q.get('Q1', 0.0) + dplus_by_q.get('Q2', 0.0)) / total_dplus   if total_dplus  > 0 else 0.0
+    desc_bias = (dminus_by_q.get('Q3', 0.0) + dminus_by_q.get('Q4', 0.0)) / total_dminus if total_dminus > 0 else 0.0
+    _max_denom  = max(total_dplus, total_dminus)
+    net_balance = (total_dplus - total_dminus) / _max_denom if _max_denom > 0 else 0.0
 
-    # Quartile dominant en montee (biais decay-haut)
+    # Quartile dominant D+
     if total_dplus > 10:
-        dplus_fracs = {q: v / total_dplus for q, v in dplus_by_q.items()}
+        dplus_fracs    = {q: v / total_dplus for q, v in dplus_by_q.items()}
         dominant_q_asc = max(dplus_fracs, key=dplus_fracs.get)
-        max_frac_asc   = dplus_fracs[dominant_q_asc]
     else:
-        dominant_q_asc, max_frac_asc = 'Q1', 0.0
+        dominant_q_asc = 'Q1'
 
-    BIAS_THRESHOLD_DESC = 0.30   # >30% D- concentre en Q3/Q4 — descente finale (aligné ASCENDING)
-    BIAS_THRESHOLD_ASC  = 0.30   # >30% D+ concentre en Q1/Q2 — montee initiale (aligné SCI-5)
-
-    asc_triggered  = max_frac_asc  >= BIAS_THRESHOLD_ASC  and dominant_q_asc  in ('Q1', 'Q2')
-    desc_triggered = max_frac_desc >= BIAS_THRESHOLD_DESC and dominant_q_desc in ('Q3', 'Q4')
-
-    if asc_triggered and (not desc_triggered or max_frac_asc >= max_frac_desc):
-        # Montee concentree en debut de course → Q1 penalise, decay artificiel
-        elev_profile = {
-            'profile':         'ASCENDING',
-            'elevation_bias':  max_frac_asc,
-            'magnitude':       max_frac_asc - 0.25,
-            'dominant_q':      dominant_q_asc,
-            'dplus_by_q':      dplus_by_q,
-            'dminus_by_q':     dminus_by_q,
-        }
-        return elev_profile
-    elif desc_triggered:
-        # Descente concentree en fin de course → GAP Q4 surestimee → decay biaise
-        elev_profile = {
-            'profile':         'DESCENDING',
-            'elevation_bias':  max_frac_desc,
-            'magnitude':       max_frac_desc - 0.25,   # ecart vs distribution uniforme (25%)
-            'dominant_q':      dominant_q_desc,
-            'dplus_by_q':      dplus_by_q,
-            'dminus_by_q':     dminus_by_q,
-        }
-        return elev_profile
+    # Quartile dominant D-
+    if total_dminus > 10:
+        dminus_fracs    = {q: v / total_dminus for q, v in dminus_by_q.items()}
+        dominant_q_desc = max(dminus_fracs, key=dminus_fracs.get)
     else:
-        elev_profile = {
-            'profile':         'FLAT',
-            'elevation_bias':  max(max_frac_desc, max_frac_asc),
-            'magnitude':       0.0,
-            'dominant_q':      dominant_q_desc if max_frac_desc > max_frac_asc else dominant_q_asc,
-            'dplus_by_q':      dplus_by_q,
-            'dminus_by_q':     dminus_by_q,
+        dominant_q_desc = 'Q1'
+
+    # Arbre de décision séquentiel SCI-8 (premier match gagne)
+    if net_balance > 0.5:
+        return {
+            'profile':     'ASCENDING',
+            'elevation_bias': asc_bias,
+            'magnitude':   asc_bias - 0.25,
+            'dominant_q':  dominant_q_asc,
+            'dplus_by_q':  dplus_by_q, 'dminus_by_q': dminus_by_q,
+            'asc_bias': asc_bias, 'desc_bias': desc_bias, 'net_balance': net_balance,
         }
-        return elev_profile
+    elif net_balance < -0.3:
+        return {
+            'profile':     'DESCENDING',
+            'elevation_bias': desc_bias,
+            'magnitude':   desc_bias - 0.25,
+            'dominant_q':  dominant_q_desc,
+            'dplus_by_q':  dplus_by_q, 'dminus_by_q': dminus_by_q,
+            'asc_bias': asc_bias, 'desc_bias': desc_bias, 'net_balance': net_balance,
+        }
+    elif asc_bias > 0.55 and desc_bias > 0.45:
+        # Montée concentrée en début ET descente concentrée en fin → profil MIXED
+        # dominant_q = max D- (la descente est l'artefact prioritaire sur decay)
+        return {
+            'profile':     'MIXED',
+            'elevation_bias': max(asc_bias, desc_bias),
+            'magnitude':   max(asc_bias, desc_bias) - 0.25,
+            'dominant_q':  dominant_q_desc,
+            'dplus_by_q':  dplus_by_q, 'dminus_by_q': dminus_by_q,
+            'asc_bias': asc_bias, 'desc_bias': desc_bias, 'net_balance': net_balance,
+        }
+    elif asc_bias > 0.55:
+        return {
+            'profile':     'ASCENDING',
+            'elevation_bias': asc_bias,
+            'magnitude':   asc_bias - 0.25,
+            'dominant_q':  dominant_q_asc,
+            'dplus_by_q':  dplus_by_q, 'dminus_by_q': dminus_by_q,
+            'asc_bias': asc_bias, 'desc_bias': desc_bias, 'net_balance': net_balance,
+        }
+    elif desc_bias > 0.55:
+        return {
+            'profile':     'DESCENDING',
+            'elevation_bias': desc_bias,
+            'magnitude':   desc_bias - 0.25,
+            'dominant_q':  dominant_q_desc,
+            'dplus_by_q':  dplus_by_q, 'dminus_by_q': dminus_by_q,
+            'asc_bias': asc_bias, 'desc_bias': desc_bias, 'net_balance': net_balance,
+        }
+    else:
+        # FLAT — pas de biais dominant
+        dominant_q = dominant_q_desc if total_dminus >= total_dplus else dominant_q_asc
+        return {
+            'profile':     'FLAT',
+            'elevation_bias': max(asc_bias, desc_bias),
+            'magnitude':   0.0,
+            'dominant_q':  dominant_q,
+            'dplus_by_q':  dplus_by_q, 'dminus_by_q': dminus_by_q,
+            'asc_bias': asc_bias, 'desc_bias': desc_bias, 'net_balance': net_balance,
+        }
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -1153,7 +1179,13 @@ def apply_decay_correction(fi: dict, elev_profile: dict, df: pd.DataFrame) -> di
 
     q1_original = fi.get('quartiles', {}).get('Q1', float('nan'))
 
-    if profile == 'DESCENDING':
+    if profile == 'MIXED':
+        # Q4 biaise par descente ET Q1 biaise par montee → corriger les deux sur plat
+        # Si Q1 n'a pas assez de plat, repli sur q1_original (même comportement que DESCENDING)
+        q4_corrected = q_flat_gap(4)
+        _q1_flat = q_flat_gap(1)
+        q1_ref = _q1_flat if not _isnan(_q1_flat) else q1_original
+    elif profile == 'DESCENDING':
         # Q4 biaise par descente → remplacer Q4 par GAP plat Q4
         q4_corrected = q_flat_gap(4)
         q1_ref = q1_original
@@ -1165,7 +1197,7 @@ def apply_decay_correction(fi: dict, elev_profile: dict, df: pd.DataFrame) -> di
     if _isnan(q4_corrected) or _isnan(q1_ref) or q1_ref <= 0:
         # Pas assez de plat dans le quartier cible — fallback : GAP global Q4 sans filtre plat
         # mais toujours clippe au garde-fou [0.50, 1.20]
-        if profile == 'DESCENDING':
+        if profile in ('DESCENDING', 'MIXED'):
             # Fallback : prendre GAP moyen Q4 toutes pentes confondues, clip seulement
             q4_mask = (df['distance'] >= 3*q_size) & (df['distance'] < 4*q_size) & (df['velocity'] > 0.3)
             q4_all = df[q4_mask]['gap']
@@ -1296,7 +1328,7 @@ def compute_performance_score(fi: dict, drift: dict, dp_per_km: float = 0.0) -> 
     decay_ratio = fi.get('decay_ratio_corrected', fi.get('decay_ratio', float('nan')))
     _correction_applied = fi.get('correction_applied', True)
     _profile = fi.get('elev_profile', {}).get('profile', 'FLAT')
-    _gap_unscoreable = (not _correction_applied) and (_profile in ('ASCENDING', 'DESCENDING'))
+    _gap_unscoreable = (not _correction_applied) and (_profile in ('ASCENDING', 'DESCENDING', 'MIXED'))
     if _isnan(decay_ratio) or _gap_unscoreable:
         score_gap = None
     else:
