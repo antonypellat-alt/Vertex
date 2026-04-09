@@ -1358,13 +1358,17 @@ def compute_performance_score(fi: dict, drift: dict, dp_per_km: float = 0.0) -> 
     # decay_ratio : 1.0 = parfait, 0.0 = effondrement total
     # On normalise [0.7, 1.0] → [0, 100] (en dessous de 0.70 c'est catastrophique)
     decay_ratio = fi.get('decay_ratio_corrected', fi.get('decay_ratio', float('nan')))
-    _correction_applied = fi.get('correction_applied', True)
-    _profile = fi.get('elev_profile', {}).get('profile', 'FLAT')
-    _gap_unscoreable = (not _correction_applied) and (_profile in ('ASCENDING', 'DESCENDING', 'MIXED'))
-    if _isnan(decay_ratio) or _gap_unscoreable:
+    if _isnan(decay_ratio):
         score_gap = None
+    elif decay_ratio < 0.85:
+        # Zone dégradation [0.70, 0.85[ → [0, 30]
+        score_gap = int(round(max(0, min(30, (decay_ratio - 0.70) / 0.15 * 30))))
+    elif decay_ratio < 0.95:
+        # Zone performance [0.85, 0.95[ → [30, 85]
+        score_gap = int(round(max(30, min(85, 30 + (decay_ratio - 0.85) / 0.10 * 55))))
     else:
-        score_gap = int(round(max(0, min(100, (decay_ratio - 0.70) / 0.30 * 100))))
+        # Zone élite [0.95, 1.00] → [85, 100]
+        score_gap = int(round(max(85, min(100, 85 + (decay_ratio - 0.95) / 0.05 * 15))))
 
     # ── Composante 2 : Variance inter-quartiles Q1→Q4 ───────────
     # Mesure la régularité : faible variance = bon score
@@ -1407,10 +1411,17 @@ def compute_performance_score(fi: dict, drift: dict, dp_per_km: float = 0.0) -> 
         else:
             partial_reason = "Score partiel — terrain insuffisamment plat pour calculer l'EF"
     elif ef_source == 'GAP_FALLBACK':
-        # SCI-7 : EF estimée via régression GAP globale — signal valide mais provisoire
+        # SCI-7 : EF via régression GAP globale
+        # ASCENDING/DESCENDING : plat structurellement rare → méthode primaire (partial=False)
+        # FLAT/MIXED : plat attendu mais absent → signal d'alerte (partial=True)
         score_ef = int(round(max(0, min(100, (1 + drift_pct / 20) * 100))))
-        partial  = True
-        partial_reason = "Score EF estimé — profil montagneux (validation en cours)"
+        _fb_profile = fi.get('elev_profile', {}).get('profile', 'FLAT')
+        if _fb_profile in ('ASCENDING', 'DESCENDING'):
+            partial        = False
+            partial_reason = None
+        else:
+            partial        = True
+            partial_reason = "Score EF estimé — profil montagneux (validation en cours)"
     else:
         # drift_pct ∈ [-20, 0] → score ∈ [0, 100]
         # Au-delà de -20% on plafonne à 0
