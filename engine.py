@@ -1249,6 +1249,13 @@ def apply_decay_correction(fi: dict, elev_profile: dict, df: pd.DataFrame) -> di
     ratio_corrected = q4_corrected / q1_ref
     # Garde-fou dynamique [0.50, cap_dynamic] — profil DESCENDING leve le plafond selon magnitude
     cap_dynamic = min(1.20 + elev_profile.get('magnitude', 0.0) * 0.8, 1.50)
+    # C4-BUG fix : plancher MIXED = min(original_ratio, 1.0)
+    # La correction cible un artefact haussier (descente gonfle Q4) — elle ne doit jamais
+    # produire un ratio inférieur au brut. Si Q4 plat est rare/lent post-descente,
+    # q4_corrected/q1_ref peut sous-estimer massivement → sur-correction inverse.
+    if profile == 'MIXED' and not _isnan(original_ratio):
+        floor_mixed = min(original_ratio, 1.0)
+        ratio_corrected = max(floor_mixed, ratio_corrected)
     ratio_corrected = max(0.50, min(cap_dynamic, ratio_corrected))
 
     fi_out['decay_ratio_corrected']  = round(ratio_corrected, 4)
@@ -1550,7 +1557,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
     # Collapse nutritionnel ou thermique partiel : allure partiellement tenue
     # (decay > 0.85 = perte GAP < 15%) → dégradation progressive, pas anomalie franche
     # COLLAPSE avec decay ≥ 0.85 → V3 (allure partiellement tenue malgré effondrement FC)
-    if pattern == 'COLLAPSE' and not _isnan(decay_ratio) and decay_ratio >= 0.85 and fi.get('elev_profile', {}).get('profile', 'FLAT') == 'FLAT':
+    if pattern == 'COLLAPSE' and not _isnan(decay_ratio) and decay_ratio >= 0.85:
         dp = decay_pct if not _isnan(decay_pct) else 0
         cp = abs(collapse_pct) if collapse_pct is not None else 0
         return {
@@ -1564,7 +1571,7 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
         }
 
     # ── V6 : COLLAPSE franc (decay < 0.85) ───────────────────────
-    if pattern == 'COLLAPSE' and fi.get('elev_profile', {}).get('profile', 'FLAT') == 'FLAT':
+    if pattern == 'COLLAPSE' and fi.get('elev_profile', {}).get('profile', 'FLAT') in ('FLAT', 'MIXED', 'ASCENDING', 'DESCENDING'):
         cp = abs(collapse_pct) if collapse_pct is not None else 0
         return {
             'code':  'V6',

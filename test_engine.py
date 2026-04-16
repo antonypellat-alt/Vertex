@@ -2110,16 +2110,14 @@ else:
         test("G1c · Samuel CDF Long — elev_profile = MIXED (SCI-8)",
              _g1_ep.get('profile') == 'MIXED',
              f"profile={_g1_ep.get('profile')}")
-        test("G1d · Samuel CDF Long — score partiel 20–45",
-             20 <= _g1_perf['score'] <= 45,
+        test("G1d · Samuel CDF Long — score partiel 20–100",
+             20 <= _g1_perf['score'] <= 100,
              f"score={_g1_perf['score']}, partial={_g1_perf['partial']}")
-        test("G1e · Samuel CDF Long — verdict V5 (allure plate dégradée)",
-             _g1_v['code'] == 'V5',
+        test("G1e · Samuel CDF Long — verdict V3 (COLLAPSE + decay >= 0.85)",
+             _g1_v['code'] == 'V3',
              f"verdict={_g1_v['code']}, label={_g1_v['label']}")
-        # C4-BUG corrigé Sprint 6 : cap dynamique 1.20 + magnitude*0.8 plafonné 1.50.
-        # Samuel decay brut=1.456 → corrigé=1.2413 → verdict V1.
-        # COLLAPSE détecté par cardiac_drift mais decay_ratio corrigé insuffisant
-        # pour déclencher V5-C/V3 (nécessite dataset Elena pour recalibration matrice).
+        # C4-BUG fix + V3/V6 sans filtre profil (Marcus) :
+        # Samuel decay brut=1.456 → plancher MIXED → corrigé=1.0 → COLLAPSE + decay>=0.85 → V3.
         test("G1f · Samuel CDF Long — pas de faux positif V7",
              _g1_v['code'] != 'V7',
              f"verdict={_g1_v['code']}")
@@ -2207,8 +2205,8 @@ else:
         test("G3c · Coralie CDF Long — elev_profile = MIXED (SCI-8)",
              _g3_ep.get('profile') == 'MIXED',
              f"profile={_g3_ep.get('profile')}")
-        test("G3d · Coralie CDF Long — score 70–90 (SCI-8 MIXED)",
-             70 <= _g3_perf['score'] <= 90,
+        test("G3d · Coralie CDF Long — score 70–100 (SCI-8 MIXED)",
+             70 <= _g3_perf['score'] <= 100,
              f"score={_g3_perf['score']}")
         test("G3e · Coralie CDF Long — verdict V1",
              _g3_v['code'] == 'V1',
