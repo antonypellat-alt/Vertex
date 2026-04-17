@@ -278,12 +278,13 @@ test("C4b · insufficient → pattern=None",
      r_c4['pattern'] is None,
      f"pattern={r_c4['pattern']}")
 
-# C5 : test_no_collapse_false_positive — FC -6.5% seulement → pas COLLAPSE
-df_c5 = make_flat_df(200, fc_start=155, fc_end=145)
+# C5 : test_no_collapse_false_positive — CDC-R1 : fc_slope_global au-dessus du seuil → pas COLLAPSE
+# slope ≈ -2.25 bph (155→153.5 sur 40min) > slope_thr=-3.0 → COLLAPSE ne doit pas déclencher
+df_c5 = make_flat_df(200, fc_start=155, fc_end=153.5)
 r_c5  = cardiac_drift(df_c5)
 test("C5 · test_no_collapse_false_positive : pattern≠COLLAPSE",
      r_c5['pattern'] != 'COLLAPSE',
-     f"pattern={r_c5['pattern']} (fc_delta≈-6.5%, en dessous du seuil -10%)")
+     f"pattern={r_c5['pattern']} (fc_slope≈-2.25 bph, au-dessus seuil -3.0 bph)")
 
 # C6 : champs du return complets
 required_keys = ['ef1','ef2','drift_pct','quartiles','pattern',

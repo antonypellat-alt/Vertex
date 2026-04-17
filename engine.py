@@ -222,9 +222,9 @@ def cardiac_drift(df: pd.DataFrame,
                   decay_v: float = None) -> dict:
     """
     v4.2 — Détection 6 patterns : STABLE / DRIFT / DRIFT-CARDIO / DRIFT-NEURO / COLLAPSE / NEGATIVE_SPLIT
-    COLLAPSE A      : FC chute > delta_thr OU (slope < slope_thr ET decay_v < +0.05)
-    COLLAPSE B      : FC chute > 20% segments plats uniquement
-    NEGATIVE_SPLIT  : slope < slope_thr MAIS decay_v >= +0.05 — FC baisse car perf monte (C5 v2)
+    COLLAPSE A      : fc_delta_pct < delta_thr ET decay_v < +0.05 (CDC-R1 — garde decay_v ajoutée)
+    COLLAPSE B      : FC chute > 20% segments plats — filet sécurité extrême
+    NEGATIVE_SPLIT  : fc_slope_bph (flat) < slope_thr MAIS decay_v >= +0.05 — FC baisse car perf monte
     DRIFT-CARDIO    : EF degrade < seuil adaptatif ET ef_slope_pph < -0.005 — surcharge cardio-metabolique
     DRIFT-NEURO     : EF degrade < seuil adaptatif ET ef_slope_pph >= -0.005 — fatigue neuromusculaire
     DRIFT           : EF degrade entre seuil/2 et seuil — derive faible, signal precoce
@@ -235,7 +235,7 @@ def cardiac_drift(df: pd.DataFrame,
         'ef1': None, 'ef2': None, 'drift_pct': None, 'quartiles': {},
         'pattern': None, 'collapse_pct': None, 'fc_slope_bph': None,
         'fc_q1_mean': None, 'fc_q4_mean': None, 'insufficient_data': True,
-        'decay_v': None,
+        'decay_v': None, 'fc_slope_global': None,
     }
 
     flat = df[
@@ -262,6 +262,15 @@ def cardiac_drift(df: pd.DataFrame,
         ef_slope_pph  = float(coeffs_ef_pre[0]) * 3600
     else:
         ef_slope_pph = 0.0
+
+    # CDC-R1 : régression FC globale sur tous points valides (pas seulement flat)
+    hr_all = all_valid['hr'].to_numpy()
+    t_all  = all_valid['time_s'].to_numpy()
+    if len(t_all) > 10:
+        coeffs_global = np.polyfit(t_all, hr_all, 1)
+        fc_slope_global = float(coeffs_global[0]) * 3600  # bpm/h
+    else:
+        fc_slope_global = 0.0
 
     def _sci7_fallback():
         """SCI-7 : fallback EF GAP — plat insuffisant mais ef_slope_pph disponible."""
@@ -385,16 +394,21 @@ def cardiac_drift(df: pd.DataFrame,
     drift_ef_thr = get_drift_ef_threshold(_dur_s)
     drift_ef_thr_mild = drift_ef_thr / 2  # seuil DRIFT = moitié du seuil pathologique
 
-    # C5 v2 : slope_thr déclenche COLLAPSE seulement si vitesse ne progresse pas
+    # CDC-R1 : bug racine = première branche fc_delta_pct < delta_thr ne vérifiait pas decay_v.
+    # Sur descente finale : fc_delta_pct très négatif (Q4 plat = récupération descente)
+    # mais decay_v >= 0.05 (allure en hausse) → faux positif COLLAPSE.
+    # Fix minimal : ajouter _decay_v < 0.05 à la branche delta seule.
+    # fc_slope_global calculé et retourné pour analytics — non utilisé comme trigger primaire
+    # (contamination terrain : descentes → FC basse → slope global biaisé).
     _decay_v = decay_v if decay_v is not None else 0.0
     slope_triggers_collapse  = (fc_slope_bph < slope_thr) and (_decay_v < 0.05)
     slope_triggers_neg_split = (fc_slope_bph < slope_thr) and (_decay_v >= 0.05)
 
     collapse_a = (fc_delta_pct is not None and (
-        fc_delta_pct < delta_thr or                                          # chute delta suffisante seule
-        (slope_triggers_collapse and fc_delta_pct < delta_thr / 2)          # slope + chute minimale
+        (fc_delta_pct < delta_thr and _decay_v < 0.05) or              # CDC-R1 : garde decay_v ajoutée
+        (slope_triggers_collapse and fc_delta_pct < delta_thr / 2)     # slope + chute minimale
     ))
-    collapse_b = (fc_delta_pct is not None and fc_delta_pct < -20)
+    collapse_b = (fc_delta_pct is not None and fc_delta_pct < -20)  # filet sécurité extrême
 
     if collapse_a or collapse_b:
         pattern      = 'COLLAPSE'
@@ -428,7 +442,8 @@ def cardiac_drift(df: pd.DataFrame,
         'quartiles':        ef_q,
         'pattern':          pattern,
         'collapse_pct':     collapse_pct,
-        'fc_slope_bph':     fc_slope_bph,   # rétrocompat appelants
+        'fc_slope_bph':     fc_slope_bph,    # rétrocompat appelants
+        'fc_slope_global':  fc_slope_global, # CDC-R1 — régression FC tous points valides
         'ef_slope_pph':     ef_slope_pph,   # SCI-6 — pente EF globale
         'fc_q1_mean':       fc_q1_mean,
         'fc_q4_mean':       fc_q4_mean,
