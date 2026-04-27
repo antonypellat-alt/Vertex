@@ -25,7 +25,8 @@ def parse_fit(file_bytes: bytes) -> pd.DataFrame:
         t = data.get('timestamp')
         lat = data.get('position_lat')
         lon = data.get('position_long')
-        ele = data.get('altitude') or data.get('enhanced_altitude') or 0.0
+        ele = data.get('altitude') or data.get('enhanced_altitude')
+        ele = float(ele) if ele is not None else float('nan')
         hr = data.get('heart_rate')
         cad = data.get('cadence')
         speed = data.get('speed') or data.get('enhanced_speed')
@@ -78,6 +79,9 @@ def parse_fit(file_bytes: bytes) -> pd.DataFrame:
 
     # Élévation — lissage Savitzky-Golay
     ele_arr = df['ele'].to_numpy()
+    # Interpolation lineaire des points sans altitude (evite spikes D+)
+    ele_series = pd.Series(ele_arr)
+    ele_arr = ele_series.interpolate(method='linear', limit_direction='both').to_numpy()
     if len(ele_arr) >= 11:
         ele_smooth = savgol_filter(ele_arr, window_length=11, polyorder=2)
     else:
