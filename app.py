@@ -339,8 +339,14 @@ def render_landing():
     # ══ HERO ════════════════════════════════════════════════════════
     col_l, col_c, col_r = st.columns([1, 2, 1])
     with col_c:
-        # Logo centré
-        st.image("logo-vertex.png", width=96)
+        # Logo centré — SVG inline (pas de fichier externe)
+        st.markdown("""
+<div style="display:flex;justify-content:center;margin-bottom:4px;">
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <polygon points="32,6 56,52 44,52 32,28 20,52 8,52" fill="#41C8E8"/>
+  <polygon points="32,22 44,52 32,40 20,52" fill="#080E14"/>
+</svg>
+</div>""", unsafe_allow_html=True)
         st.markdown('<div class="vertex-title">VERTEX</div>', unsafe_allow_html=True)
         st.markdown('<div class="vertex-sub">PERFORMANCE&nbsp;·&nbsp;INTELLIGENCE</div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)

@@ -4,6 +4,7 @@ numpy
 scipy
 plotly
 fpdf2==2.7.9
+reportlab>=4.0
 gpxpy
 defusedxml>=0.7.1
 fitparse
