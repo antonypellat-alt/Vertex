@@ -106,6 +106,7 @@ def parse_fit(file_bytes: bytes) -> pd.DataFrame:
     grade = np.concatenate([[0.0], d_ele / d_dist * 100])
     grade = np.clip(grade, -40, 40)
     df['grade'] = grade
+    df['dz'] = np.concatenate([[0.0], d_ele])
 
     # GAP flag (même logique que gpx_parser)
     df['gap_flag'] = df['grade'].abs() > 1.0

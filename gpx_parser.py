@@ -170,6 +170,12 @@ def parse_gpx(file_bytes: bytes) -> pd.DataFrame:
 
 
 def extract_race_info(df: pd.DataFrame, filename: str) -> dict:
+    if 'dz' not in df.columns:
+        if 'elevation' in df.columns:
+            df = df.copy()
+            df['dz'] = df['elevation'].diff().fillna(0)
+        else:
+            raise ValueError("DataFrame manque les colonnes 'elevation' et 'dz'")
     total_dist = df['distance'].iloc[-1]
     total_time = df['time_s'].iloc[-1]
     elevation_gain = df['dz'].clip(lower=0).sum()
