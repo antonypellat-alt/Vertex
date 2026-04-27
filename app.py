@@ -339,26 +339,18 @@ def render_landing():
     # ══ HERO ════════════════════════════════════════════════════════
     col_l, col_c, col_r = st.columns([1, 2, 1])
     with col_c:
-        st.markdown('<div class="hud-label">// SYSTEM ONLINE — v3.5 //</div>', unsafe_allow_html=True)
+        # Logo centré
+        st.image("logo-vertex.png", width=96)
         st.markdown('<div class="vertex-title">VERTEX</div>', unsafe_allow_html=True)
-        st.markdown('<div class="vertex-sub">PERFORMANCE INTELLIGENCE</div>', unsafe_allow_html=True)
+        st.markdown('<div class="vertex-sub">PERFORMANCE&nbsp;·&nbsp;INTELLIGENCE</div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("""
-        <div style="font-family:'Barlow Condensed',sans-serif;font-size:1.7rem;
-                    font-weight:700;color:#ffffff;line-height:1.3;letter-spacing:0.04em;">
-            En 30 secondes, tu sais<br>
-            <span style="color:#41C8E8;">
-                si tu as bien géré ton effort.
-            </span>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("""
-        <div style="font-family:'DM Mono',monospace;font-size:0.65rem;color:#3A5060;line-height:1.8;">
-            Strava montre ce que tu as fait.<br>
-            VERTEX explique ce que ça t'a coûté physiquement.
-        </div>
-        """, unsafe_allow_html=True)
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:1.25rem;
+                font-weight:400;color:#8899AA;letter-spacing:0.04em;line-height:1.5;">
+        Strava montre ce que tu as fait.<br>
+        <span style="color:#41C8E8;">VERTEX explique ce que ça t'a coûté.</span>
+    </div>
+    """, unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
 
     # ══ 3 BLOCS VALEUR ══════════════════════════════════════════════
@@ -437,25 +429,17 @@ def render_landing():
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ══ FORMULAIRE + UPLOAD ════════════════════════════════════════
-    col_l, col_c, col_r = st.columns([1, 2, 1])
-    with col_c:
-        # ── PROFIL ATHLÈTE ──────────────────────────────────────
-        st.markdown("""
-        <div style="font-family:'DM Mono',monospace;font-size:0.62rem;color:#2A4050;
-        letter-spacing:0.22em;text-transform:uppercase;border-bottom:1px solid #152030;
-        padding-bottom:6px;margin-bottom:1rem;">// PROFIL ATHLÈTE //</div>
-        """, unsafe_allow_html=True)
+    col_profil, col_import = st.columns([1, 1], gap="large")
 
-        # ── Checkbox mode zones (toujours visible) ───────────────────
-        manual_zones = st.checkbox(
-            "Je connais mes zones FC",
-            value=st.session_state.get(_SK_ZONE_MODE, 'auto') == 'manual',
-            help="Cocher pour saisir tes seuils directement en bpm · La FCmax sera déduite du plafond Z5",
-        )
-        st.session_state[_SK_ZONE_MODE] = 'manual' if manual_zones else 'auto'
+    with col_profil:
+        st.markdown("""
+    <div style="font-family:'DM Mono',monospace;font-size:0.62rem;color:#2A4050;
+    letter-spacing:0.22em;text-transform:uppercase;border-bottom:1px solid #152030;
+    padding-bottom:6px;margin-bottom:16px;">▌ 01 · PROFIL ATHLÈTE</div>
+    """, unsafe_allow_html=True)
 
         # ── Champ FCmax : visible uniquement en mode auto ─────────────
-        if st.session_state[_SK_ZONE_MODE] == 'auto':
+        if st.session_state.get(_SK_ZONE_MODE, 'auto') == 'auto':
             if _SK_FCMAX not in st.session_state:
                 st.session_state[_SK_FCMAX] = 190
             fcmax_input = st.number_input(
@@ -476,6 +460,29 @@ def render_landing():
         else:
             # Mode manuel : FCmax déduite de Z5 — on garde une valeur de référence pour les defaults
             fcmax_input = st.session_state.get(_SK_FCMAX, 190)
+
+        # ── Preview zones dynamique (mode auto uniquement) ────────────
+        if st.session_state.get(_SK_ZONE_MODE, 'auto') == 'auto':
+            _fz = st.session_state.get(_SK_FCMAX, 190)
+            st.markdown(f"""
+    <div style="font-family:'DM Mono',monospace;font-size:0.68rem;
+                color:#4A6070;line-height:2.0;background:#0D1520;
+                padding:14px 16px;border:1px solid #152030;margin-bottom:12px;">
+        <div>Z1 &nbsp; &lt;60% &nbsp;→ &nbsp;<span style="color:#41C8E8">&lt;{int(_fz*0.60)} bpm</span></div>
+        <div>Z2 &nbsp; 60–70% &nbsp;→ &nbsp;<span style="color:#41C8E8">{int(_fz*0.60)}–{int(_fz*0.70)} bpm</span></div>
+        <div>Z3 &nbsp; 70–80% &nbsp;→ &nbsp;<span style="color:#41C8E8">{int(_fz*0.70)}–{int(_fz*0.80)} bpm</span></div>
+        <div>Z4 &nbsp; 80–90% &nbsp;→ &nbsp;<span style="color:#C8A84B">{int(_fz*0.80)}–{int(_fz*0.90)} bpm</span></div>
+        <div>Z5 &nbsp; 90–100% &nbsp;→ &nbsp;<span style="color:#C84850">{int(_fz*0.90)}–{_fz} bpm</span></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+        # ── Checkbox mode zones (toujours visible) ───────────────────
+        manual_zones = st.checkbox(
+            "Je connais mes zones FC",
+            value=st.session_state.get(_SK_ZONE_MODE, 'auto') == 'manual',
+            help="Cocher pour saisir tes seuils directement en bpm · La FCmax sera déduite du plafond Z5",
+        )
+        st.session_state[_SK_ZONE_MODE] = 'manual' if manual_zones else 'auto'
 
         if st.session_state[_SK_ZONE_MODE] == 'manual':
             st.markdown("""
@@ -507,7 +514,12 @@ def render_landing():
             Saisis le bpm maximum de chaque zone
             </div>""", unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
+    with col_import:
+        st.markdown("""
+    <div style="font-family:'DM Mono',monospace;font-size:0.62rem;color:#2A4050;
+    letter-spacing:0.22em;text-transform:uppercase;border-bottom:1px solid #152030;
+    padding-bottom:6px;margin-bottom:16px;">▌ 02 · IMPORT</div>
+    """, unsafe_allow_html=True)
 
         uploaded = st.file_uploader(
             "IMPORTER UN FICHIER GPX / TCX / FIT",
@@ -515,6 +527,13 @@ def render_landing():
             help="Garmin Connect → Exporter l'original · Polar → Export TCX · Suunto → Export FIT",
             label_visibility="visible",
         )
+        st.markdown("""
+    <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:#3A5060;
+    letter-spacing:0.08em;line-height:1.8;margin-top:8px;">
+    GARMIN CONNECT → ACTIVITÉ → ··· → EXPORTER L'ORIGINAL<br>
+    <span style="color:#C8A84B;">⚠ NE PAS UTILISER L'EXPORT STRAVA — SUPPRIME LA FC</span>
+    </div>
+    """, unsafe_allow_html=True)
         if uploaded:
             st.session_state[_SK_BYTES_P] = uploaded.read()
             st.session_state[_SK_FILENAME] = uploaded.name
