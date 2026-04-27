@@ -275,8 +275,8 @@ hr { border-color: #152030 !important; }
     gap: 16px;
     align-items: flex-start;
 }
-.alert-warn { border-left-color: rgba(200,168,75,0.6) !important; }
-.alert-crit { border-left-color: rgba(200,72,80,0.6) !important; }
+.alert-warn { border-left-color: #C8A84B !important; }
+.alert-crit { border-left-color: #C84850 !important; }
 
 /* ══ MOBILE — 640px et moins ══════════════════════════════════ */
 @media (max-width: 640px) {
@@ -667,6 +667,31 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
         fcmax = int(st.session_state.get(_SK_FCMAX_OK,
                     st.session_state.get(_SK_FCMAX, 190)))
 
+    _race_name = info.get('name', filename.replace('_', ' ').upper())
+    st.markdown(f"""
+<div style="position:sticky;top:0;z-index:100;
+            background:#080E14;border-bottom:1px solid #152030;
+            padding:10px 0 10px 0;margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:16px;max-width:1200px;margin:0 auto;">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-weight:900;
+                    font-size:1.1rem;letter-spacing:0.25em;color:#41C8E8;line-height:1;">
+            ▲ VERTEX
+        </div>
+        <div style="width:1px;height:20px;background:#152030;"></div>
+        <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;
+                    font-size:1.1rem;letter-spacing:0.12em;color:#ffffff;
+                    text-transform:uppercase;flex:1;">
+            {_race_name}
+        </div>
+        <div style="font-family:'DM Mono',monospace;font-size:0.55rem;
+                    color:#2A4050;letter-spacing:0.22em;
+                    border:1px solid #152030;padding:4px 10px;">
+            LOCAL
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
     with st.sidebar:
         st.markdown('<div class="hud-label">// PARAMETRES //</div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
@@ -773,7 +798,7 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
 
     if _score >= 80:   _score_color = '#41C8E8'
     elif _score >= 60: _score_color = '#C8A84B'
-    else:              _score_color = '#C84850'
+    else:              _score_color = '#C8A84B'
 
     _share_html = (
         f'<div style="width:100%;margin-top:12px;padding-top:10px;'
@@ -1508,15 +1533,15 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     # affichées par défaut — reste dans expander imbriqué.
     with st.expander("▶  RECOMMANDATIONS COACH", expanded=False):
         level_styles = {
-            'info': ('rgba(65,200,232,0.3)', '#41C8E8', '◆ INFO'),
-            'warn': ('rgba(200,168,75,0.6)', '#C8A84B', '▲ ATTENTION'),
-            'crit': ('rgba(200,72,80,0.6)',  '#C84850', '● PRIORITAIRE'),
+            'info': ('#41C8E8', 2, '#41C8E8', '◆ INFO'),
+            'warn': ('#C8A84B', 3, '#C8A84B', '▲ ATTENTION'),
+            'crit': ('#C84850', 4, '#C84850', '● PRIORITAIRE'),
         }
 
         def _render_rec(rec):
-            border_color, text_color, label = level_styles.get(rec['level'], level_styles['info'])
+            border_color, border_width, text_color, label = level_styles.get(rec['level'], level_styles['info'])
             st.markdown(f"""
-            <div style="padding:14px 18px;background:#0D1520;border-left:3px solid {border_color};margin-bottom:10px;">
+            <div style="padding:14px 18px;background:#0D1520;border-left:{border_width}px solid {border_color};margin-bottom:10px;">
                 <div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:{text_color};letter-spacing:0.2em;margin-bottom:6px">{label}</div>
                 <div style="font-family:'Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:700;color:#ffffff;margin-bottom:6px">{rec['title']}</div>
                 <div style="font-family:'DM Sans',sans-serif;font-size:0.88rem;color:#4A6070;line-height:1.6">{rec['body']}</div>
