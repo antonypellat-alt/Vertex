@@ -1263,7 +1263,14 @@ def apply_decay_correction(fi: dict, elev_profile: dict, df: pd.DataFrame) -> di
 
     ratio_corrected = q4_corrected / q1_ref
     # Garde-fou dynamique [0.50, cap_dynamic] — profil DESCENDING leve le plafond selon magnitude
-    cap_dynamic = min(1.20 + elev_profile.get('magnitude', 0.0) * 0.8, 1.50)
+    # C4-BUG fix Sprint 8 : cap dynamique réservé à ASCENDING/MIXED uniquement.
+    # Sur DESCENDING, la descente finale gonfle Q4 → la correction tire vers le bas.
+    # Lever le cap via magnitude autoriserait une sur-correction inverse → masquerait la fatigue réelle.
+    cap_dynamic = (
+        min(1.20 + elev_profile.get('magnitude', 0.0) * 0.8, 1.50)
+        if profile in ('ASCENDING', 'MIXED')
+        else 1.20
+    )
     # C4-BUG fix : plancher MIXED = min(original_ratio, 1.0)
     # La correction cible un artefact haussier (descente gonfle Q4) — elle ne doit jamais
     # produire un ratio inférieur au brut. Si Q4 plat est rare/lent post-descente,

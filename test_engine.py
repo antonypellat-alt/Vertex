@@ -2272,12 +2272,12 @@ else:
 # ── G5 : Coralie CDF Long 2023 ──────────────────────────────────
 # Course validée : 69km / 2601mD+ / 7h32
 # elev_profile : DESCENDING — correction decay appliquée
-# decay brut=0.75 → corrigé=0.90 (sur-correction connue BUG-SPRINT6)
+# C4-BUG résolu Sprint 8 — cap_dynamic fixe 1.20 sur DESCENDING
 # Pattern : DRIFT-CARDIO (-16.1%) — signal dominant malgré correction
 # Score attendu : ~41 (complet — EF disponible)
 # Verdict attendu : V4 FATIGUE COMBINÉE
 # FCmax : 200
-# Note : second dataset BUG-SPRINT6 (D- distribué Q3+Q4, correction trop permissive)
+# C4-BUG résolu Sprint 8 — cap_dynamic fixe 1.20 sur DESCENDING
 _g5_df = _load_gpx("CDF Trail Long 2023 Coralie.gpx")
 if _g5_df is None:
     test("G5a · Coralie CDF 2023 — GPX chargé", False, "Fichier absent dans Dataset GPX/")
@@ -2324,9 +2324,7 @@ else:
         test("G5h · Coralie CDF 2023 — drift_pct < -10% (DRIFT-CARDIO fort)",
              (_g5_drift.get('drift_pct') or 0) < -10.0,
              f"drift_pct={_g5_drift.get('drift_pct')}")
-        # Note BUG-SPRINT6 : decay brut=0.75 corrigé→0.90 par apply_decay_correction DESCENDING.
-        # Sur-correction présente mais masquée par DRIFT-CARDIO dominant.
-        # Second dataset de validation pour recalibration cap correction (bloqué Elena).
+        # C4-BUG résolu Sprint 8 — cap_dynamic fixe 1.20 sur DESCENDING
     except Exception as e:
         test("G5 · Coralie CDF 2023 — pipeline sans crash", False, str(e))
 
