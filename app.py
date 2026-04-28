@@ -802,6 +802,11 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     _zone_validated = _wmeta.get('zone_validated', True)
     _zone           = _wmeta.get('zone', 'Z3')
 
+    _score_unreliable = (
+        drift.get('duration_ultra', False) and
+        not info.get('has_hr', False)
+    )
+
     if _score >= 80:   _score_color = '#41C8E8'
     elif _score >= 60: _score_color = '#C8A84B'
     else:              _score_color = '#C8A84B'
@@ -842,10 +847,10 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                 SCORE VERTEX
             </div>
             <div style="font-family:'Barlow Condensed',sans-serif;font-size:3.6rem;
-                        font-weight:900;line-height:1;color:{_score_color};">{_score}</div>
+                        font-weight:900;line-height:1;color:{_score_color if not _score_unreliable else '#3A5060'};">{"N/A" if _score_unreliable else _score}</div>
             <div style="font-family:'DM Mono',monospace;font-size:0.55rem;
                         color:#3A5060;margin-top:4px;">
-                {"⚠ " + _p_reason if _partial else "/ 100"}
+                {"Score non interprétable — ultra >10h sans données cardiaques." if _score_unreliable else ("⚠ " + _p_reason if _partial else "/ 100")}
             </div>
         </div>
         {_share_html}

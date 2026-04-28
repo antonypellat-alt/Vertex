@@ -639,10 +639,13 @@ def cadence_analysis(df: pd.DataFrame) -> dict:
 def _get_race_profile(distance_km: float, duration_s: float) -> str:
     """
     Détecte le profil de course sur critère combiné ET (plus robuste que OU).
-    ULTRA  : ≥ 50 km ET ≥ 4h
-    LONG   : ≥ 20 km ET ≥ 1h30
-    COURT  : tout le reste
+    ULTRA_LONG : > 10h (CDC-U1)
+    ULTRA      : ≥ 50 km ET ≥ 4h
+    LONG       : ≥ 20 km ET ≥ 1h30
+    COURT      : tout le reste
     """
+    if duration_s > 36000:
+        return 'ULTRA_LONG'
     if distance_km >= 50 and duration_s >= 14400:
         return 'ULTRA'
     if distance_km >= 20 and duration_s >= 5400:
@@ -726,6 +729,11 @@ def generate_coach_recommendations(
                     f"Chute FC {cp:.0f}% en Q4 — signal nutritionnel classique sur cette distance. "
                     "Surveiller à la prochaine sortie ≥3h avec ravitaillement simulé."
                 ),
+                'ULTRA_LONG': (
+                    "Chute FC détectée sur un effort de plus de 10h — signal à surveiller "
+                    "mais attendu sur ce format. Mentionne-le à un médecin du sport si le "
+                    "signal se répète."
+                ),
             }
             raw.append({
                 'level': 'crit',
@@ -749,6 +757,10 @@ def generate_coach_recommendations(
                     f"Chute FC {cp:.0f}% — épuisement complet sur ce format. "
                     "Récupération 2-3 semaines. Revoir stratégie allure + nutrition pour la prochaine."
                 ),
+                'ULTRA_LONG': (
+                    "Signal cardiaque sévère sur ultra-long. Récupération 2-3 semaines "
+                    "minimum. Revoir stratégie allure et nutrition avant la prochaine."
+                ),
             }
             raw.append({
                 'level': 'crit',
@@ -771,6 +783,11 @@ def generate_coach_recommendations(
             'ULTRA': (
                 f"Derive de {abs(drift_pct):.1f}% — signe precoce attendu sur cette duree. "
                 "Sorties 3h+ avec ravitaillement simule avant la prochaine competition."
+            ),
+            'ULTRA_LONG': (
+                f"Dérive de {abs(drift_pct):.1f}% sur plus de 10h d'effort — signal "
+                "précoce attendu sur ce format. Continue les sorties longues >3h avec "
+                "ravitaillement simulé."
             ),
         }
         raw.append({
@@ -796,6 +813,11 @@ def generate_coach_recommendations(
                 f"Surcharge cardio-metabolique : FC +{fc_slope:.1f} bpm/h, derive {abs(drift_pct):.1f}%. "
                 "Revoir la nutrition : 60-80g glucides/h + sodium. Allure Q1 probablement trop elevee."
             ),
+            'ULTRA_LONG': (
+                f"Surcharge cardio-métabolique : FC +{fc_slope:.1f} bpm/h, dérive "
+                f"{abs(drift_pct):.1f}%. Sur un ultra >10h, revoir la nutrition : "
+                "80-90g glucides/h + sodium. Allure Q1 probablement trop élevée."
+            ),
         }
         raw.append({
             'level': 'crit',
@@ -818,6 +840,11 @@ def generate_coach_recommendations(
             'ULTRA': (
                 f"Fatigue musculaire profonde sur la 2e moitie ({abs(drift_pct):.1f}% de derive). "
                 "Trails technique avec D+ en bloc dans la prep. Recuperation 10-14j minimum."
+            ),
+            'ULTRA_LONG': (
+                f"Fatigue musculaire profonde sur {abs(drift_pct):.1f}% de dérive — "
+                "attendue sur ce format. Récupération 10-14j minimum avant toute "
+                "séance de force."
             ),
         }
         raw.append({
@@ -843,6 +870,10 @@ def generate_coach_recommendations(
                 f"FC en baisse, allure en hausse sur la seconde partie (+{abs(_dv_ns)*100:.0f}%). "
                 "Nutrition et gestion d'intensité ont tenu. Consolider ce schéma sur des formats plus longs."
             ),
+            'ULTRA_LONG': (
+                "Remontée d'allure sur la seconde moitié d'un ultra >10h — gestion "
+                "exemplaire. Rare sur ce format."
+            ),
         }
         raw.append({
             'level': 'info',
@@ -864,6 +895,11 @@ def generate_coach_recommendations(
             'ULTRA': (
                 f"Dégradation GAP {dp:.1f}%{deniv_note} — souvent nutritionnel autant que physique. "
                 "Revoir la stratégie d'allure Q1→Q2 et le ravitaillement Q3→Q4."
+            ),
+            'ULTRA_LONG': (
+                f"Perte d'allure significative sur ultra-long — ralentissement "
+                f"attendu après H10. Identifie les segments de rupture pour optimiser "
+                "la prochaine."
             ),
         }
         raw.append({
@@ -889,6 +925,10 @@ def generate_coach_recommendations(
                 f"Dégradation modérée -{dp:.1f}%{deniv_note} — bonne gestion globale. "
                 "Affiner la nutrition de fin de course : +1 gel/30min après km 40."
             ),
+            'ULTRA_LONG': (
+                f"Légère perte d'allure sur ultra-long — dans les normes du format. "
+                "Affine la nutrition et le pacing de départ."
+            ),
         }
         raw.append({
             'level': 'warn',
@@ -911,6 +951,10 @@ def generate_coach_recommendations(
             'ULTRA': (
                 f"Cadence {cad_mean:.0f} spm — dégradation attendue sur la distance. "
                 "Travailler la cadence sur les 10 premiers km quand le contrôle est encore possible."
+            ),
+            'ULTRA_LONG': (
+                f"Cadence basse sur ultra >10h — normal en fin d'effort prolongé. "
+                "Travaille la foulée économique sur tes sorties longues."
             ),
         }
         raw.append({
@@ -984,6 +1028,7 @@ def _strength_point(profile, drift_pattern, drift_pct, cad_mean, dp,
             'COURT': "Efficacité cardiaque stable sur tout l'effort — base aérobie solide. Monter en intensité : 1 séance VMA/semaine.",
             'LONG':  "Endurance cardiovasculaire bien développée. Capitaliser : ajouter +10% de volume D+ par cycle de 3 semaines.",
             'ULTRA': "Gestion cardiaque solide sur la durée. Exploiter cette base : sorties longues avec dénivelé progressif.",
+            'ULTRA_LONG': "Stabilité cardiaque remarquable sur plus de 10h d'effort. Exploiter cette base : augmenter progressivement les sorties >6h avec ravitaillement simulé.",
         }
         return {'title': 'Maintenir cette efficacité cardiaque', 'body': _body[race_profile]}
 
@@ -992,6 +1037,7 @@ def _strength_point(profile, drift_pattern, drift_pct, cad_mean, dp,
             'COURT': "Gestion d'allure optimale du début à la fin. Franchir un palier : 2×/semaine fractionné court (6-8×400m à 95% VMA).",
             'LONG':  f"Pacing excellent ({f'-{dp:.1f}% GAP' if not _isnan(dp) and dp > 0 else 'allure stable'}). Exploiter cette régularité : cibler une distance supérieure.",
             'ULTRA': "Stratégie de course maîtrisée sur la distance. Progresser : augmenter le dénivelé cumulé de la prochaine sortie longue.",
+            'ULTRA_LONG': "Pacing maîtrisé sur plus de 10h — performance rare. Progresser : augmenter le dénivelé cumulé et simuler la nutrition sur les entraînements longs.",
         }
         return {'title': "Capitaliser sur cette gestion d'allure", 'body': _body[race_profile]}
 
@@ -1006,6 +1052,7 @@ def _strength_point(profile, drift_pattern, drift_pct, cad_mean, dp,
             'COURT': "Profil endurance identifié — moteur aérobie ton atout. Ajouter du volume D+ : +10% par cycle de 3 semaines.",
             'LONG':  "Profil endurance solide. Transformer en puissance : côtes longues 6-10min à VMA montée, 1×/semaine.",
             'ULTRA': "Profil endurance adapté au format. Consolider : sorties 4h+ avec ravitaillement simulant les conditions course.",
+            'ULTRA_LONG': "Profil endurance taillé pour le format ultra-long. Consolider : sorties 6h+ avec ravitaillement et gestion thermique simulant les conditions course.",
         }
         return {'title': 'Exploiter ce profil endurance', 'body': _body[race_profile]}
 
@@ -1663,6 +1710,16 @@ def compute_verdict(fi: dict, drift: dict, perf: dict) -> dict:
     _v3_hi = 0.85 if _decay_mode == 'Q4/Qmax' else 0.90
     if not _isnan(decay_ratio) and _v3_lo <= decay_ratio < _v3_hi:
         dp = decay_pct if not _isnan(decay_pct) else 0
+        if drift.get('duration_ultra'):
+            return {
+                'code':  'V3',
+                'label': 'DÉGRADATION PROGRESSIVE',
+                'sub':   f"L'allure a reculé de {dp:.1f}% sur un effort de plus de 10h — ralentissement attendu sur ce format. La gestion globale reste dans les normes ultra. Identifie les segments de rupture pour optimiser la prochaine échéance.",
+                'color': '#C8A84B',
+                'icon':  '~',
+                'action_line': "→ Repasse les segments horaires : identifie où le rythme a le plus décroché — c'est ton axe de travail nutrition/allure.",
+                'share_line': "Tu sais où ça s'est fissuré. C'est déjà gagné. — @vertex.effort",
+            }
         return {
             'code':  'V3',
             'label': 'DÉGRADATION PROGRESSIVE',
