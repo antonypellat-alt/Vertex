@@ -183,16 +183,21 @@ def get_collapse_thresholds(duration_s: float, dp_per_km: float) -> tuple:
     """
     Retourne (slope_threshold, delta_threshold) selon le profil de course.
     CDC Elena v1.2 — calibration multi-format Sprint 4.
+    CDC-U1 — palier ultra-long ajouté (Elena gate Sprint 9).
 
+    Ultra-long (>10h)                             : -1.5 bph / -15% — désensibilisation chronotrope + thermorégulation chronique
     Ultra / très montagneux (>4h ou >50 m/km D+) : -2.0 bph / -6%
     Trail moyen (>2h ou >30 m/km D+)             : -2.5 bph / -8%
     Trail court                                   : -3.0 bph / -10%
 
-    Backlog : palier ultra-long >8h (attente GPX Emmanuel EcoTrail)
+    B7 : Julien CCC (fc_slope -1.1 → faux COLLAPSE corrigé). Second dataset : Emmanuel EcoTrail (att. GPX).
     """
+    is_ultra_long = duration_s > 36000              # >10h — CDC-U1
     is_ultra = duration_s > 14400 or dp_per_km > 50
     is_mid   = duration_s > 7200  or dp_per_km > 30
-    if is_ultra:
+    if is_ultra_long:
+        return (-1.5, -15.0)
+    elif is_ultra:
         return (-2.0, -6.0)
     elif is_mid:
         return (-2.5, -8.0)
@@ -289,6 +294,7 @@ def cardiac_drift(df: pd.DataFrame,
                 'pattern':          _pattern_gap,
                 'insufficient_data': False,
                 'ef_source':        'GAP_FALLBACK',
+                'duration_ultra':   (duration_s is not None and duration_s > 36000),  # CDC-U1 : flag passif
             }
         return _empty
 
@@ -451,6 +457,7 @@ def cardiac_drift(df: pd.DataFrame,
         'decay_v':          _decay_v,
         'drift_ef_thr':     drift_ef_thr,      # SCI-4 : seuil utilisé, exploitable A2/debug
         'q1_dplus_overloaded': False,           # SCI-5 : calculé dans app.py après detect_elevation_profile
+        'duration_ultra':   (_dur_s > 36000),  # CDC-U1 : flag passif ultra-long >10h — zéro impact moteur
     }
 
 
