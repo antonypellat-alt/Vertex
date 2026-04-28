@@ -152,11 +152,15 @@ def chart_hr_pace_overlay(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def chart_quartiles(quartiles: dict) -> go.Figure:
+def chart_quartiles(quartiles: dict, decay_mode: str = 'Q4/Q1') -> go.Figure:
     labels = list(quartiles.keys())
     values = [round(v, 4) if not _isnan(v) else 0 for v in quartiles.values()]
-    colors_bar = ['#41C8E8' if i == 0 else ('#C84850' if i == 3 else '#1A3A4A')
-                  for i in range(4)]
+    # C-1 Sprint 8 : Q1 amber si decay_mode Q4/Qmax (SCI-8) — Q1 exclu du ratio, signal visuel cohérent
+    _q1_color = '#C8A84B' if decay_mode == 'Q4/Qmax' else '#41C8E8'
+    colors_bar = [
+        _q1_color if i == 0 else ('#C84850' if i == 3 else '#1A3A4A')
+        for i in range(4)
+    ]
     fig = go.Figure(go.Bar(
         x=labels, y=values, marker_color=colors_bar,
         text=[f"{v:.3f}" for v in values],
@@ -800,7 +804,9 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
 
     score = int((perf.get('score') if perf else None) or 0)
 
-    dp = (fi.get('decay_pct') if fi else None)
+    # C-2 Sprint 8 : utiliser decay_pct_corrected si correction appliquée (SCI-3)
+    _corr_applied = (fi.get('correction_applied', False) if fi else False)
+    dp = (fi.get('decay_pct_corrected') if _corr_applied else fi.get('decay_pct')) if fi else None
     fat_idx = float(dp) if (dp is not None and not _isnan(dp)) else 0.0
 
     verd_label = ''
@@ -818,6 +824,19 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         else:             verd_label = "MARGE DE PROGRESSION"
 
     pattern = str((drift.get('pattern') if drift else None) or 'STABLE')
+
+    # C-3 Sprint 8 : seuils adaptatifs SCI-4 — cohérence avec get_drift_ef_threshold()
+    # Court <2h : -4% / Long 2-4h : -6% / Ultra >4h : -9%
+    _d_pct = float(drift.get('drift_pct') or 0) if drift else 0.0
+    if not _isnan(_d_pct):
+        _drift_thr = float(drift.get('drift_ef_thr', -4.0) or -4.0) if drift else -4.0
+        _qualif = (
+            "(normal)"          if _d_pct > _drift_thr / 2 else
+            "(fatigue moderee)" if _d_pct > _drift_thr      else
+            "(signal fort)"
+        )
+    else:
+        _qualif = ""
 
     # Quartiles
     qraw = (fi.get('quartiles') if fi else {}) or {}
@@ -879,7 +898,7 @@ def generate_pdf(info, fi, flat_v, profile, grade_df,
         'verdict_label':     verd_label,
         'verdict_text':      verd_text,
         'pattern_title':     '',
-        'pattern_text':      '',
+        'pattern_text':      _qualif,
         'insight_title':     ins_title,
         'insight_text':      ins_text,
         'progression_title': prg_title,
