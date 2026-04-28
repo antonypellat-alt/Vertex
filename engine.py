@@ -1805,11 +1805,13 @@ def prepare_analysis(fi: dict, elev_profile: dict, df, info: dict) -> dict:
         drift = cardiac_drift(df, duration_s=info['total_time_s'],
                               dp_per_km=_dp_per_km, decay_v=_decay_v)
     else:
+        _dur_s_pa = float(info.get('total_time_s') or 0)
         drift = {
             'ef1': None, 'ef2': None, 'drift_pct': None, 'quartiles': {},
             'pattern': None, 'collapse_pct': None, 'fc_slope_bph': None,
             'fc_q1_mean': None, 'fc_q4_mean': None, 'insufficient_data': True,
             'decay_v': None,
+            'duration_ultra': (_dur_s_pa > 36000),  # CDC-U1 : flag passif même sans FC
         }
 
     # SCI-5 : flag Q1 D+ surchargé
