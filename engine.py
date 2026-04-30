@@ -300,6 +300,20 @@ def cardiac_drift(df: pd.DataFrame,
         _valid  = (_ef_q1 is not None) and (_ef_q4 is not None)
         _drift  = round((_ef_q4 - _ef_q1) / _ef_q1 * 100, 2) \
                   if _valid and _ef_q1 > 0 else None
+        # CDC-R2 Piste B : delta_fc iso-pente Q4 - Q1
+        def _fc_iso_q(qi, g_lo=_g_lo, g_hi=_g_hi):
+            t_lo = _t_start + (qi - 1) * _q_size
+            t_hi = _t_start + qi * _q_size if qi < 4 else df['time_s'].max() + 1
+            seg = _iso_valid[
+                (_iso_valid['time_s'] >= t_lo) & (_iso_valid['time_s'] < t_hi) &
+                (_iso_valid['grade'] >= g_lo) & (_iso_valid['grade'] < g_hi)
+            ]
+            hr_m = float(seg['hr'].mean()) if len(seg) >= 10 else None
+            return hr_m if (hr_m and hr_m > 0) else None
+        _fc_q1_iso = _fc_iso_q(1)
+        _fc_q4_iso = _fc_iso_q(4)
+        _delta_fc  = round(_fc_q4_iso - _fc_q1_iso, 2) \
+                     if (_fc_q1_iso is not None and _fc_q4_iso is not None) else None
         _ef_iso_result[_g_label] = {
             'ef_q1':     round(_ef_q1, 4) if _ef_q1 else None,
             'ef_q4':     round(_ef_q4, 4) if _ef_q4 else None,
@@ -309,6 +323,7 @@ def cardiac_drift(df: pd.DataFrame,
             'dur_q1':    round(_dur_q1, 1),
             'dur_q4':    round(_dur_q4, 1),
             'valid':     _valid,
+            'delta_fc':  _delta_fc,
         }
 
     t_ef   = all_valid['time_s'].to_numpy()
@@ -503,6 +518,44 @@ def cardiac_drift(df: pd.DataFrame,
         pattern      = 'STABLE'
         collapse_pct = None
 
+    # ── CDC-R2 Piste B — override pattern via iso-pente ─────────────────────
+    # Conditions : ef_source absent (plat disponible) ET pattern=STABLE
+    #              ET au moins un palier iso valide avec drift < -10%
+    # Seuils Elena gelés Sprint 9 :
+    #   delta_fc > +5 bpm → DRIFT-CARDIO
+    #   delta_fc < -4 bpm → DRIFT-NEURO
+    #   sinon            → STABLE + ef_iso_degraded=True
+    _ef_iso_degraded = False
+    _iso_override    = None
+    _ef_src = locals().get('ef_source', None)
+
+    if pattern == 'STABLE' and _ef_src is None and _ef_iso_result:
+        _delta_fc_vals = []
+        for _gd in _ef_iso_result.values():
+            if (
+                _gd and _gd.get('valid') and
+                _gd.get('n_q1', 0) >= 10 and
+                _gd.get('n_q4', 0) >= 10 and
+                _gd.get('drift_pct') is not None and
+                _gd['drift_pct'] < -10.0
+            ):
+                _dfc = _gd.get('delta_fc')
+                if _dfc is not None:
+                    _delta_fc_vals.append(_dfc)
+
+        if _delta_fc_vals:
+            _max_dfc = max(_delta_fc_vals)
+            _min_dfc = min(_delta_fc_vals)
+            if _max_dfc > 5.0:
+                _iso_override = 'DRIFT-CARDIO'
+            elif _min_dfc < -4.0:
+                _iso_override = 'DRIFT-NEURO'
+            else:
+                _ef_iso_degraded = True
+
+        if _iso_override:
+            pattern = _iso_override
+
     return {
         'ef1':              ef1,
         'ef2':              ef2,
@@ -523,6 +576,7 @@ def cardiac_drift(df: pd.DataFrame,
         'ef_r2':            ef_r2,             # CDC-R2 diagnostic Elena — R² régression EF globale
         'ef_n_points':      ef_n_points,       # CDC-R2 diagnostic Elena — N points valides
         'ef_iso':           _ef_iso_result,    # CDC-R2 Piste B — EF iso-pente Q1 vs Q4
+        'ef_iso_degraded':  _ef_iso_degraded, # CDC-R2 Piste B — drift iso sans signal FC clair
     }
 
 
