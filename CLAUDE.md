@@ -256,3 +256,22 @@ Tâches validées :
 
 Sections actives : A→S + C10/C11/C12 + K. État actuel : 143/144 — 1 échec connu M3 (PDF env).
 
+---
+
+\## Specs actives — format P1 obligatoire
+
+\### Règle
+Tout item backlog doit avoir une spec écrite ici avant d'être codé.
+Item sans spec = item inexistant.
+
+\### Format
+[ID] — Titre court
+- Problème : symptôme observé ou besoin
+- Fichiers concernés : engine.py / app.py / charts.py
+- Données requises : GPX / dataset / référence
+- Critère de clôture : ce qui prouve que c'est résolu
+- Bloquant : oui / non
+
+\### Items actifs
+— aucun item ouvert au 30/04/2026 · Sprint 9 clos —
+
