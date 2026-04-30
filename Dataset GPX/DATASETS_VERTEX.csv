@@ -49,7 +49,7 @@ DYLAN,Toureille (Ceventrail) 2026,41.46,2210m,4h26m34,61,V2,COLLAPSE,⚠️ "cou
 DYLAN,Nîmes Urban Trail 2026,41.26,1092m,3h33m47,33,V4,DRIFT-CARDIO,✅ bronchite,delta V5→V4 post-Sprint6/7 · acceptable
 DYLAN,Coutach,25.82,957m,2h16m43,84,V1,STABLE,✅ GAP 4:42,
 DYLAN,Marseille-Cassis,20.18,394m,1h19m51,83,V1,STABLE,✅ Z2 dp=18.3,
-DYLAN,ChF 2026,28.2,1440m,2h31m32,92,V1,STABLE,✅ préd. validée,⚠️ recalcul moteur actuel 42/V2 · delta post-SCI-8/Score-C · ressenti terrain prime · valeur gelée · post-MIX1 : decay_corr=1.20 · mode=Q4/Q1_mix_summit · score_moteur=74 · score_gap=100 · score_ef=47 · verdict_moteur=V2 · scores gelés ressenti prime · pattern=DRIFT-CARDIO post-SCR-ISO1
+DYLAN,ChF 2026,28.2,1440m,2h31m32,92,V1,STABLE,✅ préd. validée,⚠️ recalcul moteur actuel 42/V2 · delta post-SCI-8/Score-C · ressenti terrain prime · valeur gelée · post-MIX1 : decay_corr=1.20 · mode=Q4/Q1_mix_summit · score_moteur=74 · score_gap=100 · score_ef=47 · verdict_moteur=V2 · scores gelés ressenti prime · pattern=DRIFT-CARDIO post-SCR-ISO1 · ef_iso G4=-24.25% (delta_fc=+14.43) · ef_iso G8=-17.22% (delta_fc=+1.92) · ef_iso_degraded=False · DRIFT-CARDIO confirmé iso · dataset CDC-R2 A2 #4
 
 ## ══════════════════════════════════════════════
 ## JÉRÉMY — FCmax 189 · optique
@@ -90,7 +90,7 @@ JULIEN,XRace 2023,29.0,1825m,4h19m,92,V1,STABLE,✅ format court explosif · FC 
 ## ══════════════════════════════════════════════
 
 Athlète,Course,km,D+,Temps,Score,Verdict,CDC,Ressenti,Flags
-THIBAULT,Ventoux 2026,51.7,2674m,7h02m09,64,V?,STABLE,✅ ressenti positif validé,profil MIXED · magnitude=0.567 · decay brut=1.619→corrigé=0.917 · cap C4-BUG non déclenché (cap attendu 1.654·correction Q4/Qmax) · fc_slope_bph=+1.16 · ef_slope_pph=+0.047 · fc_q1=141.2·fc_q4=149.9 · score_gap=67 · score_ef=None(STABLE) · score_var=50(neutralisé D+/km>40) · dataset robustesse C4-BUG ✅ · arbitre SCI-8 cas limite Antony CDF
+THIBAULT,Ventoux 2026,51.7,2674m,7h02m09,64,V?,STABLE,✅ ressenti positif validé,profil MIXED · magnitude=0.567 · decay brut=1.619→corrigé=0.917 · cap C4-BUG non déclenché (cap attendu 1.654·correction Q4/Qmax) · fc_slope_bph=+1.16 · ef_slope_pph=+0.047 · fc_q1=141.2·fc_q4=149.9 · score_gap=67 · score_ef=None(STABLE) · score_var=50(neutralisé D+/km>40) · dataset robustesse C4-BUG ✅ · arbitre SCI-8 cas limite Antony CDF · ef_iso G4=-30.06% (delta_fc=+0.84) · ef_iso G8=-29.25% (delta_fc=-1.88) · ef_iso_degraded=True · 2 paliers valides · dataset CDC-R2 A2 #3
 
 ## ══════════════════════════════════════════════
 ## FAUSTINE — FCmax 200 · montre Garmin

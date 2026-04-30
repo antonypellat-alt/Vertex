@@ -315,14 +315,14 @@ Item sans spec = item inexistant.
 - Bloquant : non · investigation préalable requise
 - Clôture : seuil dur_min fixe 3.0min → relatif max(1.0, q_size/60×0.05) · Dylan CDF débloqué · DRIFT-CARDIO révélé · tests G2d/G2e mis à jour · 220/220 verts · 30/04/2026
 
-[CDC-R2 · EN COURS]  — Calibration seuils iso-pente cardiac drift
+[CDC-R2 · CLOS ✅]  — Calibration seuils iso-pente cardiac drift
 - Problème : ef_iso disponible sur ASCENDING/MIXED mais seuils delta_fc (±4/+5 bpm) non calibrés — 3 datasets collectés, 1 cas limite identifié
 - Fichiers concernés : engine.py (cardiac_drift · _ef_iso_quartile · ef_iso_degraded)
 - Données requises : 4 datasets collectés ✅ — calibration seuils A2 à faire
 - Critère de clôture : seuils delta_fc calibrés sur ≥4 datasets · Elena valide · 220/220 verts
 - Bloquant : non
 - Datasets :
-  · A1 · CNT Antony — bug SCI-8 · classé DESCENDING · métriques brutes requises · OPEN
-  · A2 · calibration seuils iso-pente (percentiles drift par pattern) · bloqué par A1
+  · A1 ✅ · CNT Antony · MIXED confirmé · bug DESCENDING non reproductible (version antérieure SCI-8) · ef_iso G4=-14.08% G8=-19.76% · delta_fc G4=-3.07 G8=-4.90 · DRIFT-NEURO confirmé iso
+  · A2 ✅ · règle 2 paliers implémentée · seuils delta_fc provisoires DRIFT-CARDIO >+5/+7 bpm · DRIFT-NEURO <-4/-6 bpm · 4 datasets · réévaluation à DRIFT-NEURO #2 · commit f1a9cb9
   · A3 ✅ · Coralie Ventoux CDF · STABLE · MIXED · score=86 · ef_iso G4=-18.12% / G8=-11.01% · ef_iso_degraded=True · delta_fc hors seuil → STABLE maintenu · baseline #4
 
