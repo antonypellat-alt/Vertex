@@ -526,37 +526,56 @@ def cardiac_drift(df: pd.DataFrame,
     # ── CDC-R2 Piste B — override pattern via iso-pente ─────────────────────
     # Conditions : ef_source absent (plat disponible) ET pattern=STABLE
     #              ET au moins un palier iso valide avec drift < -10%
-    # Seuils Elena gelés Sprint 9 :
-    #   delta_fc > +5 bpm → DRIFT-CARDIO
-    #   delta_fc < -4 bpm → DRIFT-NEURO
+    # CDC-R2 A2 · provisoire · 4 datasets · réévaluation à dataset DRIFT-NEURO #2
+    #   2 paliers valides : seuil_cardio > +5.0 bpm · seuil_neuro < -4.0 bpm
+    #   1 palier valide  : seuil_cardio > +7.0 bpm · seuil_neuro < -6.0 bpm (conservateur)
     #   sinon            → STABLE + ef_iso_degraded=True
     _ef_iso_degraded = False
     _iso_override    = None
     _ef_src = locals().get('ef_source', None)
 
     if pattern == 'STABLE' and _ef_src is None and _ef_iso_result:
-        _delta_fc_vals = []
-        for _gd in _ef_iso_result.values():
-            if (
-                _gd and _gd.get('valid') and
-                _gd.get('n_q1', 0) >= 10 and
-                _gd.get('n_q4', 0) >= 10 and
-                _gd.get('drift_pct') is not None and
-                _gd['drift_pct'] < -10.0
-            ):
-                _dfc = _gd.get('delta_fc')
-                if _dfc is not None:
-                    _delta_fc_vals.append(_dfc)
+        # Compter les paliers valides (n_q1 > 0 ET n_q4 > 0)
+        _n_paliers_valides = sum(
+            1 for g in ['G4', 'G8']
+            if _ef_iso_result.get(g) is not None
+            and _ef_iso_result[g].get('n_q1', 0) > 0
+            and _ef_iso_result[g].get('n_q4', 0) > 0
+        )
 
-        if _delta_fc_vals:
-            _max_dfc = max(_delta_fc_vals)
-            _min_dfc = min(_delta_fc_vals)
-            if _max_dfc > 5.0:
-                _iso_override = 'DRIFT-CARDIO'
-            elif _min_dfc < -4.0:
-                _iso_override = 'DRIFT-NEURO'
-            else:
-                _ef_iso_degraded = True
+        # Seuils selon nombre de paliers disponibles
+        if _n_paliers_valides == 2:
+            _seuil_cardio = 5.0
+            _seuil_neuro  = -4.0
+        else:
+            _seuil_cardio = 7.0
+            _seuil_neuro  = -6.0
+
+        # Trigger sur au moins un palier avec drift < -10%
+        _iso_trigger_cardio = False
+        _iso_trigger_neuro  = False
+        for g in ['G4', 'G8']:
+            _gd = _ef_iso_result.get(g)
+            if _gd is None or not _gd.get('valid'):
+                continue
+            if _gd.get('n_q1', 0) < 10 or _gd.get('n_q4', 0) < 10:
+                continue
+            if _gd.get('drift_pct') is None or _gd['drift_pct'] >= -10.0:
+                continue
+            _dfc = _gd.get('delta_fc')
+            if _dfc is None:
+                continue
+            if _dfc > _seuil_cardio:
+                _iso_trigger_cardio = True
+            if _dfc < _seuil_neuro:
+                _iso_trigger_neuro = True
+
+        if _iso_trigger_cardio:
+            _iso_override = 'DRIFT-CARDIO'
+        elif _iso_trigger_neuro:
+            _iso_override = 'DRIFT-NEURO'
+        elif _n_paliers_valides > 0:
+            _ef_iso_degraded = True
 
         if _iso_override:
             pattern = _iso_override
