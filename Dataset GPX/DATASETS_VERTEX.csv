@@ -38,7 +38,7 @@ CORALIE,Ceven (Le Vigan) 2024,62.46,2600m,6h40m57,77,V1,DRIFT,✅,,
 CORALIE,Toureille 2026,41.95,2293m,4h46m02,80,V1,COLLAPSE,✅ "endormie 25km · mieux ensuite" · allure accélère Q1→Q4 (2.374→3.443),⚠️ FAUX POSITIF CDC-R1 — récupération physiologique
 CORALIE,CDF Long 2023,69.0,2922m,7h31m48,14,V5,DRIFT-CARDIO (+7.14bph),✅ malade 2h · hypo · terrain boueux · titubante fin,
 CORALIE,Toureille 2023,41.49,2209m,4h43m45,92,V1,STABLE,—,,
-CORALIE,Ventoux CDF 2026,51.3,2792m,6h01m33,92,V1,STABLE · DESCENDING,✅ "kiff total d'un bout à l'autre · 2-3min perdues anecdotiques · Score validé subjectivement",,
+CORALIE,Ventoux CDF 2026,51.3,2792m,6h01m33,86,V1,STABLE,✅ "kiff total d'un bout à l'autre · 2-3min perdues anecdotiques · Score validé subjectivement",elev_profile=MIXED · dp_per_km=54.4 · fc_slope_bph=-0.108 · fc_q1=157.65 · fc_q4=159.29 · ef_slope_pph=+0.0963 · drift_pct=-3.83% · ef_iso G4=-18.12% (n539/306) · ef_iso G8=-11.01% (n632/316) · ef_iso_degraded=True · delta_fc G4=+2.82bpm · delta_fc G8=-2.42bpm · score_gap=100 · score_ef=81 · score_var=50 · ef_source=FLAT · ef_r2=0.054 · dataset CDC-R2 baseline STABLE #4 · DESCENDING corrigé→MIXED (code antérieur)
 
 ## ══════════════════════════════════════════════
 ## DYLAN — FCmax 188
