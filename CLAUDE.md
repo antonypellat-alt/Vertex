@@ -146,30 +146,17 @@ python -m pytest test\_engine.py -v
 
 \## Sprint actif
 
+\*\*Sprint 9 — CLOS ✅\*\* · 30/04/2026
+\- A1 ✅ · CNT Antony · MIXED confirmé · ef\_iso documenté · bug DESCENDING non reproductible
+\- A2 ✅ · règle iso-pente 2 paliers · seuils delta\_fc provisoires · commit f1a9cb9
+\- A3 ✅ · Coralie Ventoux CDF · baseline STABLE CDC-R2 #4 · commit 9508b57
+\- CDC-R2 ✅ · commit 799c76f
 
-
-\*\*Sprint 5\*\* — EN COURS.
-
-Tâches validées :
-
-\- Kai : ligne action immédiate sous VERDICT ("et donc tu fais quoi")
-
-\- VERDICT BUG-2 : COLLAPSE + decay < 0.80 → V5-C "EFFONDREMENT TOTAL"
-
-\- Option B : V2 + DRIFT-CARDIO → sub enrichi fc\_slope chiffré
-
-\- Sara : fenêtre Instagram à activer (signal Dylan/Kiliane)
-
-
-
-\*\*Bloquants externes\*\* :
-
-\- GPX Justine · GPX terrain roulant (Alexandre priorité) · FCmax Kiliane/Alexandre
-
-\- GPX "essoufflement" ≥25km ×2 (Adrien/Thibault/Dylan)
-
-\- ELENA② GPX Emmanuel (6–8 sem)
-
+\*\*Sprint 10 — À OUVRIR\*\*
+\- CD-2 · PDF redesign (référence HTML Dylan CDF validée)
+\- CD-3 · marketing deliverables
+\- SCR-U1 · spec à écrire
+\- ELV-B1 · spec à écrire
 
 
 \---
