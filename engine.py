@@ -241,6 +241,8 @@ def cardiac_drift(df: pd.DataFrame,
         'pattern': None, 'collapse_pct': None, 'fc_slope_bph': None,
         'fc_q1_mean': None, 'fc_q4_mean': None, 'insufficient_data': True,
         'decay_v': None, 'fc_slope_global': None,
+        'ef_r2': None, 'ef_n_points': None,  # CDC-R2 diagnostic Elena
+        'ef_iso': None,   # CDC-R2 Piste B — EF iso-pente Q1 vs Q4
     }
 
     flat = df[
@@ -259,14 +261,71 @@ def cardiac_drift(df: pd.DataFrame,
     if 'gap_velocity' not in all_valid.columns:
         all_valid['gap_velocity'] = all_valid['velocity']
     all_valid['ef_point'] = all_valid['gap_velocity'] / all_valid['hr'] * 100
+    if 'dt' not in all_valid.columns:
+        all_valid['dt'] = all_valid['time_s'].diff().fillna(0).clip(0, 30)
+
+    # CDC-R2 Piste B — EF iso-pente Q1 vs Q4
+    # Tranches Elena validées : G4 [2-6%] / G8 [6-10%] — contiguës, zéro overlap
+    # Filtre marche : velocity > 1.5 m/s (Vernillo 2017)
+    # Applicable uniquement sur ASCENDING/MIXED — appelant doit filtrer par profil
+    _iso_targets = [('G4', 2.0, 6.0), ('G8', 6.0, 10.0)]
+    _t_total = df['time_s'].max() - df['time_s'].min()
+    _t_start = df['time_s'].min()
+    _q_size  = _t_total / 4
+    _iso_valid = all_valid[all_valid['velocity'] > 1.5].copy()
+
+    def _ef_iso_quartile(qi: int, grade_lo: float, grade_hi: float):
+        """EF moyenne sur segments iso-pente dans le quartile qi (1-4)."""
+        t_lo = _t_start + (qi - 1) * _q_size
+        t_hi = _t_start + qi * _q_size if qi < 4 else df['time_s'].max() + 1
+        seg  = _iso_valid[
+            (_iso_valid['time_s'] >= t_lo) &
+            (_iso_valid['time_s'] <  t_hi) &
+            (_iso_valid['grade']  >= grade_lo) &
+            (_iso_valid['grade']  <  grade_hi)
+        ]
+        if len(seg) < 30:
+            return None, len(seg), 0.0
+        dur_min = float(seg['dt'].sum() / 60) if 'dt' in seg.columns else 0.0
+        if dur_min < 3.0:
+            return None, len(seg), dur_min
+        ef_val = float(seg['gap_velocity'].mean() / seg['hr'].mean() * 100) \
+                 if seg['hr'].mean() > 0 else None
+        return ef_val, len(seg), dur_min
+
+    _ef_iso_result = {}
+    for _g_label, _g_lo, _g_hi in _iso_targets:
+        _ef_q1, _n_q1, _dur_q1 = _ef_iso_quartile(1, _g_lo, _g_hi)
+        _ef_q4, _n_q4, _dur_q4 = _ef_iso_quartile(4, _g_lo, _g_hi)
+        _valid  = (_ef_q1 is not None) and (_ef_q4 is not None)
+        _drift  = round((_ef_q4 - _ef_q1) / _ef_q1 * 100, 2) \
+                  if _valid and _ef_q1 > 0 else None
+        _ef_iso_result[_g_label] = {
+            'ef_q1':     round(_ef_q1, 4) if _ef_q1 else None,
+            'ef_q4':     round(_ef_q4, 4) if _ef_q4 else None,
+            'drift_pct': _drift,
+            'n_q1':      _n_q1,
+            'n_q4':      _n_q4,
+            'dur_q1':    round(_dur_q1, 1),
+            'dur_q4':    round(_dur_q4, 1),
+            'valid':     _valid,
+        }
 
     t_ef   = all_valid['time_s'].to_numpy()
     ef_arr_pre = all_valid['ef_point'].to_numpy()
     if len(t_ef) > 10:
         coeffs_ef_pre = np.polyfit(t_ef, ef_arr_pre, 1)
         ef_slope_pph  = float(coeffs_ef_pre[0]) * 3600
+        # CDC-R2 — diagnostic Elena : R² et N points régression EF globale
+        ef_pred     = np.polyval(coeffs_ef_pre, t_ef)
+        ss_res      = np.sum((ef_arr_pre - ef_pred) ** 2)
+        ss_tot      = np.sum((ef_arr_pre - ef_arr_pre.mean()) ** 2)
+        ef_r2       = float(1 - ss_res / ss_tot) if ss_tot > 0 else 0.0
+        ef_n_points = int(len(t_ef))
     else:
         ef_slope_pph = 0.0
+        ef_r2        = None
+        ef_n_points  = int(len(t_ef))
 
     # CDC-R1 : régression FC globale sur tous points valides (pas seulement flat)
     hr_all = all_valid['hr'].to_numpy()
@@ -295,6 +354,9 @@ def cardiac_drift(df: pd.DataFrame,
                 'insufficient_data': False,
                 'ef_source':        'GAP_FALLBACK',
                 'duration_ultra':   (duration_s is not None and duration_s > 36000),  # CDC-U1 : flag passif
+                'ef_r2':            ef_r2,        # CDC-R2 diagnostic Elena
+                'ef_n_points':      ef_n_points,  # CDC-R2 diagnostic Elena
+                'ef_iso':           _ef_iso_result,  # CDC-R2 Piste B
             }
         return _empty
 
@@ -458,6 +520,9 @@ def cardiac_drift(df: pd.DataFrame,
         'drift_ef_thr':     drift_ef_thr,      # SCI-4 : seuil utilisé, exploitable A2/debug
         'q1_dplus_overloaded': False,           # SCI-5 : calculé dans app.py après detect_elevation_profile
         'duration_ultra':   (_dur_s > 36000),  # CDC-U1 : flag passif ultra-long >10h — zéro impact moteur
+        'ef_r2':            ef_r2,             # CDC-R2 diagnostic Elena — R² régression EF globale
+        'ef_n_points':      ef_n_points,       # CDC-R2 diagnostic Elena — N points valides
+        'ef_iso':           _ef_iso_result,    # CDC-R2 Piste B — EF iso-pente Q1 vs Q4
     }
 
 
@@ -1155,7 +1220,7 @@ def detect_elevation_profile(df: pd.DataFrame) -> dict:
             'dplus_by_q':  dplus_by_q, 'dminus_by_q': dminus_by_q,
             'asc_bias': asc_bias, 'desc_bias': desc_bias, 'net_balance': net_balance,
         }
-    elif asc_bias > 0.55 and desc_bias > 0.45:
+    elif asc_bias > 0.50 and desc_bias > 0.54:
         # Montée concentrée en début ET descente concentrée en fin → profil MIXED
         # dominant_q = max D- (la descente est l'artefact prioritaire sur decay)
         return {
