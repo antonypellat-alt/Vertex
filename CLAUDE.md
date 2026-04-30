@@ -273,7 +273,7 @@ Item sans spec = item inexistant.
 - Bloquant : oui / non
 
 \### Items actifs
-— audit moteur 30/04/2026 · sprint correctif 30/04 · 3/4 items clos · SCR-NS1 gelé · SCR-EF1 en attente —
+— audit moteur 30/04/2026 · sprint correctif 30/04 · 4/4 items clos · SCR-NS1 gelé —
 
 [SCR-NS1 · GELÉ ❄] — Score GAP aveugle au pattern NEGATIVE_SPLIT
 - Problème : 6 courses avec NEGATIVE_SPLIT ont un score_gap bas (départ lent tactique pénalisé comme chute d'allure). Écarts dataset vs moteur : CNT -58 · Dylan ChF -50 · Samuel ×2 -21 · Coralie Toureille 2023 -27 · Hivernatrail -17. Le score_gap est calculé avant le pattern CDC → les deux composantes ne se parlent pas.
@@ -291,12 +291,13 @@ Item sans spec = item inexistant.
 - Bloquant : non · priorité haute · correction chirurgicale 30 min
 - Clôture : score numérique toujours affiché + badge ULTRA · LECTURE PAR COMPOSANTE + note / 100* · 220/220 verts · 30/04/2026
 
-[SCR-EF1 · EN ATTENTE ⏸] — EF absente sur terrain montagneux malgré FC présente
+[SCR-EF1 · CLOS ✅] — EF absente sur terrain montagneux malgré FC présente
 - Problème : 12 fichiers avec has_hr=True mais score_ef=None. Filtre grade<3% trop restrictif sur ASCENDING/MIXED → plat structurellement rare → ef_source devrait basculer sur GAP_FALLBACK mais ne le fait pas sur ces 12 cas. Perte d'information systématique sur tous les trails montagne.
 - Fichiers concernés : engine.py (cardiac_drift · compute_performance_score · fallback SCI-7)
 - Données requises : audit_moteur.csv (12 fichiers identifiés) · vérifier ef_source sur chaque cas
 - Critère de clôture : score_ef non-None sur au moins 8 des 12 fichiers · Elena valide le seuil de bascule GAP_FALLBACK · B7 ≥2 datasets
 - Bloquant : non · investigation préalable requise
+- Clôture : _sci7_fallback() élargi à dp_per_km >= 20 · ef_unavailable conditionné dp_per_km < 20.0 (SCI-6 intact sur plat) · nouveau chemin STABLE montagne → score_ef calculé, partial=True, partial_reason distinct · B7 ✅ Jeremy 26km (score_ef=86) + Julien Eynavay (score_ef=88) · 220/220 verts · 30/04/2026
 
 [SCR-MIX1 · CLOS ✅] — apply_decay_correction MIXED trop agressive sur q_max_key = Q3
 - Problème : profil MIXED avec sommet en Q3 (trail montée-descente classique) → correction Q4/Q_max donne decay_ratio_corr < 1.0 même quand la course n'est pas dégradée. Le Q3 au sommet est structurellement le quartier le plus lent en allure réelle — la correction interprète la descente Q4 comme une chute d'allure. Issu de l'investigation SCR-NS1.
@@ -313,4 +314,15 @@ Item sans spec = item inexistant.
 - Critère de clôture : iso-pente disponible pour Dylan CDF Court · seuil revu en % temps tranche ou durée réduite · Elena valide le nouveau seuil · B7 ≥2 datasets
 - Bloquant : non · investigation préalable requise
 - Clôture : seuil dur_min fixe 3.0min → relatif max(1.0, q_size/60×0.05) · Dylan CDF débloqué · DRIFT-CARDIO révélé · tests G2d/G2e mis à jour · 220/220 verts · 30/04/2026
+
+[CDC-R2 · EN COURS]  — Calibration seuils iso-pente cardiac drift
+- Problème : ef_iso disponible sur ASCENDING/MIXED mais seuils delta_fc (±4/+5 bpm) non calibrés — 3 datasets collectés, 1 cas limite identifié
+- Fichiers concernés : engine.py (cardiac_drift · _ef_iso_quartile · ef_iso_degraded)
+- Données requises : 4 datasets collectés ✅ — calibration seuils A2 à faire
+- Critère de clôture : seuils delta_fc calibrés sur ≥4 datasets · Elena valide · 220/220 verts
+- Bloquant : non
+- Datasets :
+  · A1 · CNT Antony — bug SCI-8 · classé DESCENDING · métriques brutes requises · OPEN
+  · A2 · calibration seuils iso-pente (percentiles drift par pattern) · bloqué par A1
+  · A3 ✅ · Coralie Ventoux CDF · STABLE · MIXED · score=86 · ef_iso G4=-18.12% / G8=-11.01% · ef_iso_degraded=True · delta_fc hors seuil → STABLE maintenu · baseline #4
 
