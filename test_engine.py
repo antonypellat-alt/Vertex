@@ -2378,12 +2378,12 @@ test("SCI7-3 · ef_source='GAP_FALLBACK' présent dans retour",
      r_m1.get('ef_source') == 'GAP_FALLBACK',
      f"ef_source={r_m1.get('ef_source')}")
 
-# SCI7-4 : profil montagneux SANS dégradation EF → insufficient_data=True (pas de faux positif)
+# SCI7-4 : SCR-EF1 — profil montagneux + EF stable → GAP_FALLBACK actif, pattern=STABLE, score_ef=100
 df_m2 = make_mountain_df(ef_slope_pph=0.001)  # EF stable ou légèrement croissante
 r_m2 = cardiac_drift(df_m2, duration_s=19800, dp_per_km=55)
-test("SCI7-4 · profil montagneux + EF stable → insufficient_data=True (pas de fallback)",
-     r_m2['insufficient_data'] == True,
-     f"insufficient={r_m2['insufficient_data']} pattern={r_m2.get('pattern')}")
+test("SCI7-4 · profil montagneux + EF stable → insufficient_data=False + ef_source=GAP_FALLBACK (SCR-EF1)",
+     r_m2['insufficient_data'] == False and r_m2.get('ef_source') == 'GAP_FALLBACK',
+     f"insufficient={r_m2['insufficient_data']} pattern={r_m2.get('pattern')} ef_source={r_m2.get('ef_source')}")
 
 # SCI7-5 : rétrocompat — profil FLAT non affecté
 df_flat = make_flat_df(200, fc_start=150, fc_end=155)

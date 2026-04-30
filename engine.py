@@ -353,11 +353,15 @@ def cardiac_drift(df: pd.DataFrame,
         fc_slope_global = 0.0
 
     def _sci7_fallback():
-        """SCI-7 : fallback EF GAP — plat insuffisant mais ef_slope_pph disponible."""
+        """SCI-7 : fallback EF GAP — plat insuffisant mais ef_slope_pph disponible.
+        SCR-EF1 : sur ASCENDING/MIXED, activer GAP_FALLBACK même si ef_slope_pph >= -0.005
+        (EF non dégradée = drift_pct=0.0 = score_ef=100, information valide).
+        """
         duration_h = (duration_s / 3600) if duration_s else 1.0
-        if len(t_ef) > 10 and ef_slope_pph < -0.005:
+        _mountain = dp_per_km >= 20.0
+        if len(t_ef) > 10 and (ef_slope_pph < -0.005 or _mountain):
             drift_pct_gap = float(ef_slope_pph * duration_h * 100)
-            drift_pct_gap = max(-20.0, drift_pct_gap)  # clip plancher
+            drift_pct_gap = max(-20.0, min(0.0, drift_pct_gap))  # clip [plancher, 0] — EF ne peut pas être positive
             if drift_pct_gap < get_drift_ef_threshold(duration_s if duration_s else 3600):
                 _pattern_gap = 'DRIFT'
             else:
@@ -1619,10 +1623,17 @@ def compute_performance_score(fi: dict, drift: dict, dp_per_km: float = 0.0) -> 
     pattern      = drift.get('pattern')
     insufficient = drift.get('insufficient_data', False)
     drift_pct    = drift.get('drift_pct')
+    ef_source    = drift.get('ef_source', 'FLAT')
 
-    ef_unavailable = insufficient or pattern == 'COLLAPSE' or pattern == 'STABLE'
-
-    ef_source = drift.get('ef_source', 'FLAT')
+    # SCR-EF1 Elena v2 : STABLE bloqué sur plat (SCI-6 intact).
+    # Sur montagne (dp_per_km >= 20), drift_pct du chemin normal est fiable
+    # (flat_duration_min >= 10 vérifié en amont) — scorer même si STABLE.
+    # GAP_FALLBACK déjà débloqué par correctif 1.
+    ef_unavailable = insufficient or pattern == 'COLLAPSE' or (
+        pattern == 'STABLE'
+        and ef_source != 'GAP_FALLBACK'
+        and dp_per_km < 20.0
+    )
     if ef_unavailable or drift_pct is None:
         score_ef = None
         partial  = True
@@ -1642,6 +1653,12 @@ def compute_performance_score(fi: dict, drift: dict, dp_per_km: float = 0.0) -> 
         else:
             partial        = True
             partial_reason = "Score EF estimé — profil montagneux (validation en cours)"
+    elif pattern == 'STABLE' and dp_per_km >= 20.0:
+        # SCR-EF1 : STABLE montagne — plat réel disponible, signal faible mais fiable
+        # partial=True maintenu par prudence (Elena) — interprétation limitée
+        score_ef       = int(round(max(0, min(100, (1 + drift_pct / 20) * 100))))
+        partial        = True
+        partial_reason = "Score EF estimé — signal faible sur terrain montagneux"
     else:
         # drift_pct ∈ [-20, 0] → score ∈ [0, 100]
         # Au-delà de -20% on plafonne à 0
