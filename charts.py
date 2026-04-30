@@ -180,7 +180,7 @@ def chart_grade_dist(df: pd.DataFrame) -> go.Figure:
     dist_by_bin = df2.groupby('bin', observed=True)['dd'].sum() / 1000
     fig = go.Figure(go.Bar(
         x=list(dist_by_bin.index), y=list(dist_by_bin.values),
-        marker_color=['#41C8E8', '#1A8AAA', '#1A5060', '#0D2A34'],
+        marker_color=['#41C8E8', '#1A8AAA', '#1A5060', '#1A3A4A'],
         text=[f"{v:.1f} km" for v in dist_by_bin.values],
         textposition="outside", textfont=dict(color="#4A6070", size=10),
     ))
@@ -347,6 +347,16 @@ def generate_pdf_reportlab(report_data: dict) -> bytes:
     BORDER_SUBTLE = HexColor('#1A2535')
     CYAN_BLEND    = HexColor('#0E2129')
     GOLD_BLEND    = HexColor('#131210')
+    CRIT          = HexColor('#C84850')
+
+    def _verdict_rail_color(label: str):
+        """Couleur rail verdict selon sévérité — handoff design Sprint 9."""
+        l = label.upper()
+        if any(x in l for x in ['V5', 'V6', 'V7', 'COLLAPSE', 'INSUFFISANT']):
+            return CRIT
+        if any(x in l for x in ['V3', 'V4', 'DRIFT', 'FRAGILE']):
+            return GOLD
+        return CYAN  # V1, V2, STABLE, default
     ROW_ALT       = HexColor('#0F1B28')
 
     BF = 'Helvetica-Bold'
@@ -547,7 +557,8 @@ def generate_pdf_reportlab(report_data: dict) -> bytes:
     vline(MX + SCW, Bly + 6, Blh - 12, BORDER_SUBTLE)
     txt(MX + 10, Bly + 13, "SCORE VERTEX", font=RF, size=6, color=GREY_LIGHT)
     score_str = str(score) if score else "--"
-    c.setFont(BF, 46); c.setFillColor(CYAN)
+    _score_pdf_color = CYAN if score >= 80 else GOLD
+    c.setFont(BF, 46); c.setFillColor(_score_pdf_color)
     c.drawString(MX + 10, Y(Bly + 66), score_str)
     txt(MX + 10 + tw(score_str, BF, 46) + 2, Bly + 64, "/100", font=RF, size=10, color=GREY_LIGHT)
     mini_bar(MX + 10, Bly + 72, SCW - 20, 3, score / 100 if score else 0)
@@ -556,7 +567,7 @@ def generate_pdf_reportlab(report_data: dict) -> bytes:
     # Badges
     bx = VCx
     for btext, bfont, bcol in [
-        (f"VERDICT  {_get_verdict_code(verd_label)}", BF, GOLD),
+        (f"VERDICT  {_get_verdict_code(verd_label)}", BF, _verdict_rail_color(verd_label)),
         (f"PATTERN  {pattern}",                       RF, GREY_LIGHT),
         (f"PROFIL  {prof_type}",                      RF, GREY_LIGHT),
     ]:
@@ -567,7 +578,7 @@ def generate_pdf_reportlab(report_data: dict) -> bytes:
         bx += bw + 5
 
     VTOP = Bly + 28
-    tri_up(VCx + 5, VTOP + 2, 4, GOLD)
+    tri_up(VCx + 5, VTOP + 2, 4, _verdict_rail_color(verd_label))
     vl_disp = verd_label[:34]
     txt(VCx + 14, VTOP + 8, vl_disp, font=BF, size=15, color=WHITE)
     if verd_text:
@@ -664,7 +675,7 @@ def generate_pdf_reportlab(report_data: dict) -> bytes:
 
     P6y, P6h = B6y + 14, B6h - 14
     rfill(MX, P6y, CW, P6h, PANEL_DARK)
-    rfill(MX, P6y, 3, P6h, CYAN)
+    rfill(MX, P6y, 3, P6h, _verdict_rail_color(verd_label))
 
     P6Cw = int(CW * 0.26)
     txt(MX + 10, P6y + 12, "PATTERN DETECTE", font=RF, size=6, color=GREY_LIGHT)
