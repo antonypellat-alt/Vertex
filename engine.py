@@ -271,10 +271,11 @@ def cardiac_drift(df: pd.DataFrame,
     _iso_targets = [('G4', 2.0, 6.0), ('G8', 6.0, 10.0)]
     _t_total = df['time_s'].max() - df['time_s'].min()
     _t_start = df['time_s'].min()
-    _q_size  = _t_total / 4
-    _iso_valid = all_valid[all_valid['velocity'] > 1.5].copy()
+    _q_size      = _t_total / 4
+    _dur_min_thr = max(1.0, _q_size / 60 * 0.05)
+    _iso_valid   = all_valid[all_valid['velocity'] > 1.5].copy()
 
-    def _ef_iso_quartile(qi: int, grade_lo: float, grade_hi: float):
+    def _ef_iso_quartile(qi: int, grade_lo: float, grade_hi: float, dur_min_thr: float = 1.5):
         """EF moyenne sur segments iso-pente dans le quartile qi (1-4)."""
         t_lo = _t_start + (qi - 1) * _q_size
         t_hi = _t_start + qi * _q_size if qi < 4 else df['time_s'].max() + 1
@@ -287,7 +288,7 @@ def cardiac_drift(df: pd.DataFrame,
         if len(seg) < 30:
             return None, len(seg), 0.0
         dur_min = float(seg['dt'].sum() / 60) if 'dt' in seg.columns else 0.0
-        if dur_min < 3.0:
+        if dur_min < dur_min_thr:
             return None, len(seg), dur_min
         ef_val = float(seg['gap_velocity'].mean() / seg['hr'].mean() * 100) \
                  if seg['hr'].mean() > 0 else None
@@ -295,8 +296,8 @@ def cardiac_drift(df: pd.DataFrame,
 
     _ef_iso_result = {}
     for _g_label, _g_lo, _g_hi in _iso_targets:
-        _ef_q1, _n_q1, _dur_q1 = _ef_iso_quartile(1, _g_lo, _g_hi)
-        _ef_q4, _n_q4, _dur_q4 = _ef_iso_quartile(4, _g_lo, _g_hi)
+        _ef_q1, _n_q1, _dur_q1 = _ef_iso_quartile(1, _g_lo, _g_hi, _dur_min_thr)
+        _ef_q4, _n_q4, _dur_q4 = _ef_iso_quartile(4, _g_lo, _g_hi, _dur_min_thr)
         _valid  = (_ef_q1 is not None) and (_ef_q4 is not None)
         _drift  = round((_ef_q4 - _ef_q1) / _ef_q1 * 100, 2) \
                   if _valid and _ef_q1 > 0 else None
@@ -1381,10 +1382,27 @@ def apply_decay_correction(fi: dict, elev_profile: dict, df: pd.DataFrame) -> di
         q_max_key = fi.get('q_max_key', 'Q4')
         q_max_val = fi.get('q_max_val', float('nan'))
         if q_max_key != 'Q4' and not _isnan(q_max_val) and q_max_val > 0:
-            # Q_max n'est pas Q4 (typiquement Q3) : descente concentrée avant le dernier quartile
-            # → decay pertinent = Q4 / Q_max (Q4 rapporté au meilleur quartile réel)
             q4_val = fi.get('quartiles', {}).get('Q4', float('nan'))
+            if q_max_key in ('Q2', 'Q3') and not _isnan(q4_val) and q4_val > 0:
+                # Sommet en milieu de course = artefact altimétrique trail montée-descente
+                # Q4/Q_max biaiserait le résultat : la descente finale semble "plus lente" que le sommet
+                # Référence correcte : Q4/Q1 — soutien final vs départ conservateur
+                q1_val = fi.get('quartiles', {}).get('Q1', float('nan'))
+                if not _isnan(q1_val) and q1_val > 0:
+                    ratio_q4q1 = q4_val / q1_val
+                    ratio_corrected = max(0.85, min(1.20, ratio_q4q1))
+                    fi_out['decay_ratio_corrected'] = round(ratio_corrected, 4)
+                    fi_out['decay_pct_corrected']   = round((1 - ratio_corrected) * 100, 2)
+                    fi_out['correction_applied']    = True
+                    fi_out['correction_magnitude']  = round(abs(ratio_corrected - original_ratio), 4)
+                    fi_out['decay_mode']            = 'Q4/Q1_mix_summit'
+                    fi_out['q_max_key']             = q_max_key
+                    fi_out['q_max_val']             = round(q_max_val, 4)
+                    return fi_out
+                # Fallback si Q1 indisponible : comportement existant Q4/Q_max
             if not _isnan(q4_val) and q4_val > 0:
+                # Q_max n'est pas Q4 (et pas Q2/Q3 ou Q1 absent) : descente concentrée avant le dernier quartile
+                # → decay pertinent = Q4 / Q_max
                 decay_ratio_mixed = q4_val / q_max_val
                 _cap = min(1.20 + elev_profile.get('magnitude', 0.0) * 0.8, 1.50)
                 ratio_corrected = max(0.50, min(_cap, decay_ratio_mixed))

@@ -1,0 +1,133 @@
+## DATASETS VERTEX — Registre complet
+## Source de vérité. Mise à jour manuelle à chaque nouveau GPX validé.
+## Règle A3 : doute sur un chiffre → consulter ce fichier, jamais interpoler.
+## Dernière mise à jour : 27 avril 2026 — Julien (D9) · 5 FIT intégrés (CCC · Ventoux 24h · Eynavay · GRV 100M · XRace 2023) · fix D+ fit_parser commit 50f97fb · métriques recalculées post-correction
+
+## ══════════════════════════════════════════════
+## ANTONY — FCmax 202 · Z1<139 · Z2<159 · Z3<172 · Z4<184 · Z5<202
+## ══════════════════════════════════════════════
+
+Athlète,Course,km,D+,Temps,Score,Verdict,CDC,Ressenti,Flags
+ANTONY,Trail Givré 2026,24.99,620m,2h02m41,90,V1,DRIFT,✅ qualification réussie · légère fatigue km19-20 et fin de course · maîtrisé · temps visé 2h05 réalisé 2h02,
+ANTONY,BVT 2025,25.61,1374m,2h32m20,92,V1,STABLE,✅ maîtrisé · validé,
+ANTONY,Hivernatrail 2025,31.15,885m,2h53m40,47,V3,COLLAPSE,✅ départ trop fort · décrochage km20 · chute classement 16→32,
+ANTONY,Maxi Race 2025,62.69,3523m,11h32m20,92,V1,COLLAPSE,⚠️ DNF km63 · score sur tronçon partiel · EF non calculée · limite couverture GPX · allure -32% Q4 confirmée visuellement ✅ · COLLAPSE légitime,GPX tronqué — cas limite couverture (pas bug)
+ANTONY,Marathon Caen,42.63,156m,3h34m12,56,V3,DRIFT-CARDIO,✅ premier marathon · première course >20km · aucune prépa spécifique · inscrit 1 mois avant sur coup de tête · bien jusque km30 · poussif à partir km30 · craquage complet km37 · marche par moments · finition au mental · très dur,
+ANTONY,CNT Trail 2025,39.36,2459m,5h02m04,92,V1,DRIFT-NEURO,✅ 10j post-BVT · premier ChF militaire · départ prudent puis montée progressive · envoi en descente · gestion ascension · rattrapage tout au long du parcours · finition très forte 5-6 derniers km descente · course aboutie · premier trail montagne · satisfait,post-MIX1 : decay_corr=1.20 · mode=Q4/Q1_mix_summit · score_moteur=76 · score_gap=100 · score_ef=53 · score_var=50 · scores gelés ressenti prime
+ANTONY,Semi Marathon 01/05/2025,21.36,69m,1h30m08,86,V1,STABLE,✅ remontée de peloton Q1 · accrochage groupe 1h30 · décrochage km17 · perte <2min Q4 · subcritique,
+ANTONY,ChF 2026 (Court),28.68,1380m,2h55m26,32,V3,STABLE,✅ bouchons début · remontée de peloton · jambes lourdes · courbatures J+7 · récupération musculaire difficile,⚠️ delta Score 80→32 post-Score-C2
+ANTONY,Festi Trail 19/04/2026,25.2,928m,2h28m00,42,V4,FATIGUE MUSCULAIRE,✅ départ trop rapide · accroché groupe top10 km0-10 · décrochage km10 · crampes km12-13 · chute km16 · finition 14e/3e caté · FC moy 182bpm (préd. 181 ✅) · temps réel +24min vs préd. · ressenti validé,EF Q1→Q4 : 2.031→1.600 (-21.2%) · 59%Z5+40%Z4 · Tenue allure 0.817 · Perte GAP 18.3% · prédiction FC juste · allure de départ hors capacité · ne tranche pas SCI-8 (profil différent CNT)
+
+## NOTE Maxi Race : V1/Score 92 sur DNF km63 = limite connue du moteur. GPX tronqué ne couvre pas l'effondrement réel.
+
+## ══════════════════════════════════════════════
+## SAMUEL — FCmax 195 · ceinture thoracique
+## ══════════════════════════════════════════════
+
+Athlète,Course,km,D+,Temps,Score,Verdict,CDC,Ressenti,Flags
+SAMUEL,Toureille 2026,42.59,2229m,4h13m45,92,V3,COLLAPSE,✅ intention compétition à fond · coupure km24 (point culminant) · retenu avant sommet · à bloc en descente dans la 2e partie,⚠️ recalcul post-SCI-8 · ressenti ✅ complet
+SAMUEL,CDF Long 2026,51.58,2779m,5h32m24,92,V3,COLLAPSE,✅ rupture Q3/Q4 · SCI-7 validé,⚠️ recalcul post-SCI-8
+
+## ══════════════════════════════════════════════
+## CORALIE — FCmax 200 · optique
+## ══════════════════════════════════════════════
+
+Athlète,Course,km,D+,Temps,Score,Verdict,CDC,Ressenti,Flags
+CORALIE,Ceven (Le Vigan) 2022,62.25,2881m,6h59m58,92,V1,STABLE,✅,,
+CORALIE,Ceven (Le Vigan) 2024,62.46,2600m,6h40m57,77,V1,DRIFT,✅,,
+CORALIE,Toureille 2026,41.95,2293m,4h46m02,80,V1,COLLAPSE,✅ "endormie 25km · mieux ensuite" · allure accélère Q1→Q4 (2.374→3.443),⚠️ FAUX POSITIF CDC-R1 — récupération physiologique
+CORALIE,CDF Long 2023,69.0,2922m,7h31m48,14,V5,DRIFT-CARDIO (+7.14bph),✅ malade 2h · hypo · terrain boueux · titubante fin,
+CORALIE,Toureille 2023,41.49,2209m,4h43m45,92,V1,STABLE,—,,
+CORALIE,Ventoux CDF 2026,51.3,2792m,6h01m33,92,V1,STABLE · DESCENDING,✅ "kiff total d'un bout à l'autre · 2-3min perdues anecdotiques · Score validé subjectivement",,
+
+## ══════════════════════════════════════════════
+## DYLAN — FCmax 188
+## ══════════════════════════════════════════════
+
+Athlète,Course,km,D+,Temps,Score,Verdict,CDC,Ressenti,Flags
+DYLAN,Toureille (Ceventrail) 2026,41.46,2210m,4h26m34,61,V2,COLLAPSE,⚠️ "course contrôlée · aucun décrochage" incompatible avec COLLAPSE,⚠️ FAUX POSITIF confirmé terrain — CDC-R1 implémenté · à recalculer
+DYLAN,Nîmes Urban Trail 2026,41.26,1092m,3h33m47,33,V4,DRIFT-CARDIO,✅ bronchite,delta V5→V4 post-Sprint6/7 · acceptable
+DYLAN,Coutach,25.82,957m,2h16m43,84,V1,STABLE,✅ GAP 4:42,
+DYLAN,Marseille-Cassis,20.18,394m,1h19m51,83,V1,STABLE,✅ Z2 dp=18.3,
+DYLAN,ChF 2026,28.2,1440m,2h31m32,92,V1,STABLE,✅ préd. validée,⚠️ recalcul moteur actuel 42/V2 · delta post-SCI-8/Score-C · ressenti terrain prime · valeur gelée · post-MIX1 : decay_corr=1.20 · mode=Q4/Q1_mix_summit · score_moteur=74 · score_gap=100 · score_ef=47 · verdict_moteur=V2 · scores gelés ressenti prime · pattern=DRIFT-CARDIO post-SCR-ISO1
+
+## ══════════════════════════════════════════════
+## JÉRÉMY — FCmax 189 · optique
+## ══════════════════════════════════════════════
+
+Athlète,Course,km,D+,Temps,Score,Verdict,CDC,Ressenti,Flags
+JÉRÉMY,Trail 26km,26.8,670m,2h10,93,V1,DRIFT,✅ 2e course trail court · 4e trail tout confondu · pas d'objectif · donner le max · bien tout le long · doublée par une fille = source de motivation,⚠️ Score partiel — terrain insuffisamment plat pour EF
+JÉRÉMY,Trail 43km,43.28,2216m,5h10m59,67,V3,COLLAPSE,✅ ralentissement milieu de course · musculaire lâche dans les grosses montées et faux plats 5-10% · cardio/respiration OK (discussions possibles) · globalement conforme ressenti,Signal prédictif COLLAPSE confirmé · 1ère chose regardée = indice + résumé · n'analysait rien avant VERTEX
+
+## ══════════════════════════════════════════════
+## FLO — FC optique poignet (dataset clos)
+## ══════════════════════════════════════════════
+
+Athlète,Course,km,D+,Temps,Score,Verdict,CDC,Ressenti,Flags
+FLO,3 Collines 2026,20.19,673m,1h31m34,89,V3,COLLAPSE,✅ ressenti reçu · FC optique écarté · COLLAPSE = artefact FC,⚠️ FC optique inutilisable · Decay -4.3% · Profil FLAT · ceinture thoracique requise
+
+## ══════════════════════════════════════════════
+## AMAURY — FCmax 193 · ceinture thoracique
+## ══════════════════════════════════════════════
+
+Athlète,Course,km,D+,Temps,Score,Verdict,CDC,Ressenti,Flags
+AMAURY,Marathon Paris 2026,42.75,208m,3h33m18,96,V1,DRIFT,✅ pas de mur · cuisses lâchent Q4 · pas de renfo prépa · sub 3h30 manqué,Premier dataset route/marathon ceinture · Decay 1.011 · FC slope +3.64bph · EF drift -3.31% · ef_slope_pph -0.050 · cadence 165spm · pacing <1% écart Q1→Q4
+
+## ══════════════════════════════════════════════
+## JULIEN — FCmax 183 (incertaine) · brassard biceps Coros
+## ══════════════════════════════════════════════
+
+Athlète,Course,km,D+,Temps,Score,Verdict,CDC,Ressenti,Flags
+JULIEN,CCC 2025,102.3,6097m,19h39m,30,V6,COLLAPSE*,✅ départ lent embouteillages · grosse montée H0-H2h30 (1500m D+) · portion altitude 2000m+ km10-38 (FC anormalement haute ressenti) · ras-le-bol dès km15/H3 · progressivement mieux après H10 · remontée permanente coureurs dans les montées nuit · jambes ok · quasi pas de courbatures · gestion calorique ✅ · électrolytes abusés (première utilisation),⚠️ Score/Verdict non interprétables — V6/30 = faux positif COLLAPSE (fc_slope=-1.147/h signature CDC-U1) · cascade : COLLAPSE→ef_unavailable→w_gap=0.85→score écrasé · D+ corrigé post-fix fit_parser (46527→6097m) · elev_profile=FLAT (parcours équilibré · pas de biais decay · SCI-8 correct) · dataset ultra CDC-U1 #1 · seuil -0.5/h pending Elena
+JULIEN,24h du Ventoux 28/03/2026,114.2,7120m,22h38m,61,V3,COLLAPSE*,✅ conditions extrêmes neige/vent (-20°C ressenti) · arrêts longs base de vie (km43/70/85/100) · légère hypoglycémie récurrente (gel-dépendant) · 3 couches permanentes · FC baisse constante · effort volontairement sous-maximal (format 24h) · mental solide · "j'aurais pu continuer",⚠️ Score/Verdict non interprétables — COLLAPSE probable faux positif (fc_slope=-1.109/h signature CDC-U1) · D+ corrigé post-fix fit_parser (27153→7120m·+5% vs Strava 6772m ✅) · elev_profile=FLAT (boucles D+/D- équilibrés·SCI-8 correct) · dataset ultra CDC-U1 #2 · seuil -0.5/h pending Elena
+JULIEN,Eynavay Trail 2026,33.77,1051m,3h30m,96,V1,STABLE,✅ première course saison · gestion expérimentée · pas parti fort · remontée progressive · crampes km finaux (FC trop haute trop longtemps sur format court inhabituel · pas hydratation) · ralentissement subi fin de course,fc_slope_bph=+0.467 · decay_ratio=1.000 · elev_profile=MIXED · référence CDC normale pour calibration CDC-U1 · D+ corrigé post-fix (1616→1051m) · score 92→96 post-correction · FCmax observée 172 (183 déclarée probablement surestimée)
+JULIEN,GRV 100M 2025,125.0,5891m,20h14m,73,V2,DRIFT,✅ ultra de référence · remonté plein de monde · fini à bloc · cardio très maîtrisé · remontée progressive tout au long · effort contrôlé FC <150 objectif tenu,fc_slope_bph=-0.182 · decay_ratio=0.9637 · decay_pct=3.63% · elev_profile=DESCENDING · ef_source=STANDARD · score_ef=None · D+ corrigé post-fix (23938→5891m·+6% vs Strava 5550m ✅) · référence CDC DRIFT juste · zone -0.2/h = normale ultra · dataset ultra CDC-U1 référence #3
+JULIEN,XRace 2023,29.0,1825m,4h19m,92,V1,STABLE,✅ format court explosif · FC élevée dès le départ · effondrement allure fin de course · fc_slope +2.534/h → montée FC toute la course,fc_slope_bph=+2.534 · ef_slope_pph=+0.045 · decay_ratio=1.000 · elev_profile=MIXED · D+ corrigé post-fix (5149→1825m) · négatif split massif Q4>Q1 (-46%) · CDC-R1 bloque COLLAPSE (decay positif) · contraste maximal avec GRV : FC moy 158 vs 136 · écart 22bpm Q1 = zone départ optimale ultra calibrée · dataset format court CDC-U1
+## NOTE JULIEN : FCmax 183 incertaine (jamais atteinte · pic 172 Eynavay · pic 164 CCC · pic 161 Ventoux → 183 probablement surestimée) · 5 FIT reçus ✅ · GRV = référence ultra maîtrisée · D+ tous fichiers corrigés commit 50f97fb · CDC-U1 seuil -0.5/h pending Elena · zone départ optimale ultra ~130-138bpm (GRV validé terrain)
+
+## ══════════════════════════════════════════════
+## THIBAULT — FCmax inconnu · capteur inconnu
+## ══════════════════════════════════════════════
+
+Athlète,Course,km,D+,Temps,Score,Verdict,CDC,Ressenti,Flags
+THIBAULT,Ventoux 2026,51.7,2674m,7h02m09,64,V?,STABLE,✅ ressenti positif validé,profil MIXED · magnitude=0.567 · decay brut=1.619→corrigé=0.917 · cap C4-BUG non déclenché (cap attendu 1.654·correction Q4/Qmax) · fc_slope_bph=+1.16 · ef_slope_pph=+0.047 · fc_q1=141.2·fc_q4=149.9 · score_gap=67 · score_ef=None(STABLE) · score_var=50(neutralisé D+/km>40) · dataset robustesse C4-BUG ✅ · arbitre SCI-8 cas limite Antony CDF
+
+## ══════════════════════════════════════════════
+## FAUSTINE — FCmax 200 · montre Garmin
+## ══════════════════════════════════════════════
+
+Athlète,Course,km,D+,Temps,Score,Verdict,CDC,Ressenti,Flags
+FAUSTINE,Trail Mont d'Or 2026,19.1,747m,2h17m14,85,V?,STABLE,✅ "course bien passée" · ressenti positif · inscrite sur format plus long suite à cette course,fc_slope_bph=+10.5 · fc_q1=176.8 · fc_q4=190.8 · ef_slope_pph=+0.088 · decay_ratio=1.858 · profil DESCENDING · score_var=0 (CV~30% terrain) · FC moy 186bpm=93%FCmax · dérive FC masquée par descente finale explosive Q4 · cas CDC-R2 piste B · Verdict V? (STABLE moteur · score_ef=None · partial=True)
+
+## ══════════════════════════════════════════════
+## ATHLÈTES SANS DATASET
+## ══════════════════════════════════════════════
+
+Athlète,Statut
+LUDVIK,Coach · en attente GPX
+ADRIEN,Ami Antony · att. GPX · Tally 10/10
+KILIANE,Copine Dylan · DM envoyé · FCmax+capteur inconnus
+ALEXANDRE,Route · Z2 att. · FCmax inconnu
+GOULWEN,UTMB849 · TeamRossignol · blessé mars 2026 · GPX demandé
+THIBAULT,Ventoux 26/04 · dataset robustesse C4-BUG · arbitre SCI-8 cas limite · GPX attendu
+
+## ══════════════════════════════════════════════
+## FLAGS DS-1 — CLOS
+## ══════════════════════════════════════════════
+
+#,Athlète,Course,Flag,Statut
+1,ANTONY,Maxi Race,Score V1/92 sur DNF km63 · limite couverture GPX,Documenté · non bloquant
+2,DYLAN,Toureille,FAUX POSITIF COLLAPSE · allure stable pendant chute FC,RÉSOLU — CDC-R1 implémenté
+3,CORALIE,Toureille,FAUX POSITIF COLLAPSE · allure accélère pendant chute FC,RÉSOLU — CDC-R1 implémenté
+4,DYLAN,Nîmes,Delta V5→V4 post-Sprint6/7,Acceptable · non bloquant
+5,ANTONY,Caen · CNT,Ressenti manquant,CLOS — ressentis intégrés 17/04/2026
+
+## ══════════════════════════════════════════════
+## CDC-R1 — Validations terrain
+## ══════════════════════════════════════════════
+
+Course,Allure Q4,FC,COLLAPSE légitime ?
+Hivernatrail Antony,Chute km20 ✅,Chute,✅ Vrai positif
+Maxi Race Antony,-32% Q4 ✅,Chute,✅ Vrai positif
+Coralie Toureille,Accélère Q1→Q4 ✅,Chute,❌ Faux positif confirmé
+Dylan Toureille,Stable / contrôlée ✅,Chute,❌ Faux positif confirmé

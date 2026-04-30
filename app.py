@@ -718,6 +718,25 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
     _analysis    = prepare_analysis(fi, elev_profile, df, info)
     fi_score     = _analysis['fi_score']
     drift        = _analysis['drift']
+    # CDC-R2 — diagnostic Elena (console uniquement, aucun affichage UI)
+    _r2  = drift.get('ef_r2')
+    _n   = drift.get('ef_n_points')
+    _ep  = drift.get('ef_slope_pph')
+    _src = drift.get('ef_source', 'FLAT')
+    _r2_str = f"{_r2:.3f}" if _r2 is not None else "N/A"
+    _ep_str = f"{_ep:.4f}" if _ep is not None else "N/A"
+    print(f"[CDC-R2] ef_source={_src} | ef_slope_pph={_ep_str}/h | R²={_r2_str} | N={_n}")
+    # CDC-R2 Piste B — log diagnostique
+    _ef_iso = drift.get('ef_iso') or {}
+    for _gl, _gd in _ef_iso.items():
+        if _gd and _gd.get('valid'):
+            print(f"[CDC-R2 ISO] {_gl}: drift={_gd['drift_pct']:+.1f}% "
+                  f"| EF Q1={_gd['ef_q1']:.4f} Q4={_gd['ef_q4']:.4f} "
+                  f"| N={_gd['n_q1']}/{_gd['n_q4']}")
+        else:
+            _n1 = _gd.get('n_q1', 0) if _gd else 0
+            _n4 = _gd.get('n_q4', 0) if _gd else 0
+            print(f"[CDC-R2 ISO] {_gl}: INVALIDE (N Q1={_n1} / N Q4={_n4})")
     _dp_per_km   = _analysis['dp_per_km']
     _decay_v_app = _analysis['decay_v']
     hr_grade = hr_by_grade(df) if info['has_hr'] else None
@@ -842,11 +861,12 @@ def render_dashboard(gpx_bytes: bytes, filename: str):
                 SCORE VERTEX
             </div>
             <div style="font-family:'Barlow Condensed',sans-serif;font-size:3.6rem;
-                        font-weight:900;line-height:1;color:{'#C8A84B' if drift.get('duration_ultra', False) else _score_color};">{"ULTRA" if drift.get('duration_ultra', False) else _score}</div>
+                        font-weight:900;line-height:1;color:{_score_color};">{_score}</div>
             <div style="font-family:'DM Mono',monospace;font-size:0.55rem;
                         color:#3A5060;margin-top:4px;">
-                {"Score global non calibré sur ce format — lecture par composante ci-dessous." if drift.get('duration_ultra', False) else ("⚠ " + _p_reason if _partial else "/ 100")}
+                {"/ 100*" if drift.get('duration_ultra', False) else ("⚠ " + _p_reason if _partial else "/ 100")}
             </div>
+            {"<div style='margin-top:6px;display:inline-block;padding:2px 8px;background:rgba(200,168,75,0.15);border:1px solid #C8A84B;border-radius:3px;font-family:DM Mono,monospace;font-size:0.5rem;color:#C8A84B;letter-spacing:0.1em;'>ULTRA · LECTURE PAR COMPOSANTE</div><div style='font-family:DM Mono,monospace;font-size:0.45rem;color:#3A5060;margin-top:4px;'>* Score non calibré sur format ultra — lire les 3 sous-scores ci-dessous.</div>" if drift.get('duration_ultra', False) else ""}
         </div>
         {_share_html}
     </div>""", unsafe_allow_html=True)

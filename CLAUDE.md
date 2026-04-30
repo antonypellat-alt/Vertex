@@ -273,5 +273,44 @@ Item sans spec = item inexistant.
 - Bloquant : oui / non
 
 \### Items actifs
-— aucun item ouvert au 30/04/2026 · Sprint 9 clos —
+— audit moteur 30/04/2026 · sprint correctif 30/04 · 3/4 items clos · SCR-NS1 gelé · SCR-EF1 en attente —
+
+[SCR-NS1 · GELÉ ❄] — Score GAP aveugle au pattern NEGATIVE_SPLIT
+- Problème : 6 courses avec NEGATIVE_SPLIT ont un score_gap bas (départ lent tactique pénalisé comme chute d'allure). Écarts dataset vs moteur : CNT -58 · Dylan ChF -50 · Samuel ×2 -21 · Coralie Toureille 2023 -27 · Hivernatrail -17. Le score_gap est calculé avant le pattern CDC → les deux composantes ne se parlent pas.
+- Fichiers concernés : engine.py (compute_performance_score) · app.py (affichage)
+- Données requises : CNT Antony (Q_MAX_KEY=Q2, decay_corr=0.781, NEGATIVE_SPLIT) · Samuel CDF Long · Coralie Toureille 2023 — min. 3 datasets B7
+- Critère de clôture : sur les 6 courses NEGATIVE_SPLIT divergentes, score moteur dans ±10 pts du dataset · Elena valide la logique avant code
+- Bloquant : non (scores figés ressenti primes) · priorité haute
+- Gel : B7 non satisfait — 1 seul dataset NEGATIVE_SPLIT confirmé (CNT Antony). Dylan ChF = DRIFT-CARDIO, Samuel CDF = COLLAPSE. Requalifié → SCR-MIX1. Déblocage : second GPX NEGATIVE_SPLIT terrain confirmé.
+
+[SCR-ULT1 · CLOS ✅] — Score ULTRA invisible côté athlète
+- Problème : duration_ultra=True → affiche "ULTRA" en amber à la place du score numérique. Les 3 sous-scores (GAP/EF/Var) sont calculés mais l'athlète ne voit aucun chiffre global. 4 fichiers concernés : GRV 100M · 24h Ventoux · CCC 2025 · Maxi Race.
+- Fichiers concernés : app.py (bloc affichage score VERTEX, condition duration_ultra)
+- Données requises : aucune — correction UX pure
+- Critère de clôture : score numérique visible + badge ULTRA distinct · sous-scores inchangés · 220/220 tests verts
+- Bloquant : non · priorité haute · correction chirurgicale 30 min
+- Clôture : score numérique toujours affiché + badge ULTRA · LECTURE PAR COMPOSANTE + note / 100* · 220/220 verts · 30/04/2026
+
+[SCR-EF1 · EN ATTENTE ⏸] — EF absente sur terrain montagneux malgré FC présente
+- Problème : 12 fichiers avec has_hr=True mais score_ef=None. Filtre grade<3% trop restrictif sur ASCENDING/MIXED → plat structurellement rare → ef_source devrait basculer sur GAP_FALLBACK mais ne le fait pas sur ces 12 cas. Perte d'information systématique sur tous les trails montagne.
+- Fichiers concernés : engine.py (cardiac_drift · compute_performance_score · fallback SCI-7)
+- Données requises : audit_moteur.csv (12 fichiers identifiés) · vérifier ef_source sur chaque cas
+- Critère de clôture : score_ef non-None sur au moins 8 des 12 fichiers · Elena valide le seuil de bascule GAP_FALLBACK · B7 ≥2 datasets
+- Bloquant : non · investigation préalable requise
+
+[SCR-MIX1 · CLOS ✅] — apply_decay_correction MIXED trop agressive sur q_max_key = Q3
+- Problème : profil MIXED avec sommet en Q3 (trail montée-descente classique) → correction Q4/Q_max donne decay_ratio_corr < 1.0 même quand la course n'est pas dégradée. Le Q3 au sommet est structurellement le quartier le plus lent en allure réelle — la correction interprète la descente Q4 comme une chute d'allure. Issu de l'investigation SCR-NS1.
+- Fichiers concernés : engine.py (apply_decay_correction · branche MIXED · q_max_key == Q3)
+- Données requises : CNT Antony (q_max=Q2 · decay_corr=0.781) · Dylan ChF (q_max=Q3 · decay_corr=0.870) · Samuel CDF Long (q_max=Q4 · decay_corr=1.0) — B7 satisfait à 3 datasets
+- Critère de clôture : decay_ratio_corr cohérent avec ressenti terrain sur les 3 datasets · Elena valide la logique avant code · 220/220 verts
+- Bloquant : non · investigation Elena requise avant code
+- Clôture : q_max_key ∈ {Q2,Q3} → decay_ratio_corr = Q4/Q1 clipé [0.85,1.20] · decay_mode=Q4/Q1_mix_summit · B7 ✅ CNT Antony(1.20)+Dylan ChF(1.20)+Samuel CDF(1.00 témoin) · G2d mis à jour V4→V2 · 220/220 verts · 30/04/2026
+
+[SCR-ISO1 · CLOS ✅] — Iso-pente invalide sur coureur rapide même parcours
+- Problème : iso-pente valide pour Antony CDF Court (2h55) mais invalide pour Dylan CDF Court (2h31) sur parcours identique. Cause : seuil durée ≥3 min par tranche (G4/G8) non atteint sur Q1 ou Q4 quand le coureur est plus rapide. Le seuil est en durée absolue, pas en ratio de temps passé sur la tranche.
+- Fichiers concernés : engine.py (_ef_iso_quartile · seuil dur_min < 3.0)
+- Données requises : CDF Court Dylan (FLAG F confirmé) · CDF Court Antony (référence valide)
+- Critère de clôture : iso-pente disponible pour Dylan CDF Court · seuil revu en % temps tranche ou durée réduite · Elena valide le nouveau seuil · B7 ≥2 datasets
+- Bloquant : non · investigation préalable requise
+- Clôture : seuil dur_min fixe 3.0min → relatif max(1.0, q_size/60×0.05) · Dylan CDF débloqué · DRIFT-CARDIO révélé · tests G2d/G2e mis à jour · 220/220 verts · 30/04/2026
 

@@ -2162,11 +2162,13 @@ else:
              f"score={_g2_perf['score']}")
              # SCI-8 recalibration : Q4/Qmax=0.870 sans EF → score~56 (vs 92 ancien Q4/Q1 gonflé)
              # Dylan "crampes mais course tenue" → V2 cohérent. ≥65 était basé sur ratio clippé ~1.35.
-        test("G2d · Dylan CDF Court — verdict V2 (SCI-8 MIXED)",
+        test("G2d · Dylan CDF Court — verdict V2 (SCR-MIX1 decay Q4/Q1_mix_summit)",
              _g2_v['code'] == 'V2',
              f"verdict={_g2_v['code']}, label={_g2_v['label']}")
-        test("G2e · Dylan CDF Court — drift STABLE",
-             _g2_drift.get('pattern') == 'STABLE',
+             # SCR-MIX1 : q_max=Q3 → ratio Q4/Q1=1.542 clippé 1.20 au lieu de Q4/Qmax=0.870
+             # decay_ratio_corr=1.20 → score rehaussé → V2 cohérent ("crampes mais course tenue")
+        test("G2e · Dylan CDF Court — drift DRIFT-CARDIO (iso-pente actif SCR-ISO1)",
+             _g2_drift.get('pattern') == 'DRIFT-CARDIO',
              f"pattern={_g2_drift.get('pattern')}")
     except Exception as e:
         test("G2 · Dylan CDF Court — pipeline sans crash", False, str(e))
