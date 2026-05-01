@@ -322,10 +322,7 @@ def _get_verdict_code(label: str) -> str:
 
 
 def generate_pdf_reportlab(report_data: dict) -> bytes:
-    """
-    PDF v4 — ReportLab canvas — VERTEX Claude Design.
-    9 sections sur page A4 portrait fond DEEP_NAVY.
-    """
+    """PDF v6 — ReportLab canvas — VERTEX Design System."""
     from io import BytesIO
     from reportlab.pdfgen import canvas as rl_canvas
     from reportlab.lib.colors import HexColor
@@ -334,94 +331,106 @@ def generate_pdf_reportlab(report_data: dict) -> bytes:
     from reportlab.pdfbase.ttfonts import TTFont
     import os
 
-    PW, PH = A4          # 595.27 × 841.89
-    MX = 24              # marges latérales
-    CW = PW - 2 * MX    # largeur contenu ≈ 547
+    PW, PH = A4
+    MX = 24
+    CW = PW - 2 * MX
 
-    DEEP_NAVY     = HexColor('#080E14')
-    PANEL_DARK    = HexColor('#0D1520')
+    # ── palette ────────────────────────────────────────────────────
+    BG_VOID       = HexColor('#080E14')
+    BG_PANEL      = HexColor('#0D1520')
+    BG_PANEL_WARM = HexColor('#0D1620')
+    BORDER_LINE   = HexColor('#152030')
+    BORDER_MUTED  = HexColor('#1A3040')
+    FG_PRIMARY    = HexColor('#FFFFFF')
+    FG_BODY       = HexColor('#C8D4DC')
+    FG_DIM        = HexColor('#8899AA')
+    FG_MUTE       = HexColor('#7A9AAA')
+    FG_GHOST      = HexColor('#4A6070')
+    FG_HUD        = HexColor('#3A5060')
+    FG_WHISPER    = HexColor('#2A4050')
+    FG_TRACE      = HexColor('#1A2A35')
     CYAN          = HexColor('#41C8E8')
-    GOLD          = HexColor('#C8A84B')
-    WHITE         = HexColor('#FFFFFF')
-    GREY_LIGHT    = HexColor('#8899AA')
-    BORDER_SUBTLE = HexColor('#1A2535')
-    CYAN_BLEND    = HexColor('#0E2129')
-    GOLD_BLEND    = HexColor('#131210')
+    WARN          = HexColor('#C8A84B')
     CRIT          = HexColor('#C84850')
 
+    # ── font loading — graceful fallback to Helvetica ──────────────
+    FONT_BLACK      = 'Helvetica-Bold'
+    FONT_BOLD       = 'Helvetica-Bold'
+    FONT_SEMI       = 'Helvetica-Bold'
+    FONT_MONO       = 'Helvetica'
+    FONT_MONO_LIGHT = 'Helvetica'
+    FONT_MONO_MED   = 'Helvetica'
+
+    _assets = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'fonts')
+    for _fname, _rname in [
+        ('BarlowCondensed-Black.ttf',    'BarlowBlack'),
+        ('BarlowCondensed-Bold.ttf',     'BarlowBold'),
+        ('BarlowCondensed-SemiBold.ttf', 'BarlowSemi'),
+        ('DMMono-Regular.ttf',           'DMMono'),
+        ('DMMono-Light.ttf',             'DMMono-Light'),
+        ('DMMono-Medium.ttf',            'DMMono-Med'),
+    ]:
+        _fpath = os.path.join(_assets, _fname)
+        if os.path.exists(_fpath):
+            try:
+                pdfmetrics.registerFont(TTFont(_rname, _fpath))
+                if   _rname == 'BarlowBlack':  FONT_BLACK      = _rname
+                elif _rname == 'BarlowBold':   FONT_BOLD       = _rname
+                elif _rname == 'BarlowSemi':   FONT_SEMI       = _rname
+                elif _rname == 'DMMono':       FONT_MONO       = _rname
+                elif _rname == 'DMMono-Light': FONT_MONO_LIGHT = _rname
+                elif _rname == 'DMMono-Med':   FONT_MONO_MED   = _rname
+            except Exception:
+                pass
+
+    HERO_SIZE = 90 if FONT_BLACK == 'BarlowBlack' else 70
+    H2_SIZE   = 18 if FONT_BOLD  == 'BarlowBold'  else 14
+    H3_SIZE   = 16 if FONT_BOLD  == 'BarlowBold'  else 12
+    MV_SIZE   = 22 if FONT_BOLD  == 'BarlowBold'  else 18
+
+    # ── verdict rail color (unchanged) ─────────────────────────────
     def _verdict_rail_color(label: str):
-        """Couleur rail verdict selon sévérité — handoff design Sprint 9."""
         l = label.upper()
         if any(x in l for x in ['V5', 'V6', 'V7', 'COLLAPSE', 'INSUFFISANT']):
             return CRIT
         if any(x in l for x in ['V3', 'V4', 'DRIFT', 'FRAGILE']):
-            return GOLD
-        return CYAN  # V1, V2, STABLE, default
-    ROW_ALT       = HexColor('#0F1B28')
-
-    BF = 'Helvetica-Bold'
-    RF = 'Helvetica'
-    assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'fonts')
-    for fname, rname, use_bold in [
-        ('BarlowCondensed-Bold.ttf', 'BarlowBold', True),
-        ('DMSans-Regular.ttf',       'DMSans',     False),
-    ]:
-        fpath = os.path.join(assets_dir, fname)
-        if os.path.exists(fpath):
-            try:
-                pdfmetrics.registerFont(TTFont(rname, fpath))
-                if use_bold:
-                    BF = rname
-                else:
-                    RF = rname
-            except Exception:
-                pass
+            return WARN
+        return CYAN
 
     buf = BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=A4)
-    c.setPageCompression(0)   # texte lisible dans les bytes bruts (tests M3/M6)
+    c.setPageCompression(0)
 
-    # ── helpers coords ─────────────────────────────────────────────
-    def Y(y_top):
-        return PH - y_top
+    # ── helpers (unchanged signatures) ────────────────────────────
+    def Y(y_top): return PH - y_top
 
     def rfill(x, y_top, w, h, color):
         c.setFillColor(color)
         c.rect(x, Y(y_top + h), w, h, fill=1, stroke=0)
 
     def hline(y_top, x1, x2, color, lw=0.5):
-        c.setStrokeColor(color)
-        c.setLineWidth(lw)
+        c.setStrokeColor(color); c.setLineWidth(lw)
         c.line(x1, Y(y_top), x2, Y(y_top))
 
     def vline(x, y_top, h, color, lw=0.5):
-        c.setStrokeColor(color)
-        c.setLineWidth(lw)
+        c.setStrokeColor(color); c.setLineWidth(lw)
         c.line(x, Y(y_top), x, Y(y_top + h))
 
-    def txt(x, y_top, s, font=None, size=8, color=WHITE, align='left'):
-        c.setFont(font or RF, size)
+    def txt(x, y_top, s, font=None, size=8, color=FG_PRIMARY, align='left'):
+        c.setFont(font or FONT_MONO, size)
         c.setFillColor(color)
         s = _safe_str(s)
-        if align == 'center':
-            c.drawCentredString(x, Y(y_top), s)
-        elif align == 'right':
-            c.drawRightString(x, Y(y_top), s)
-        else:
-            c.drawString(x, Y(y_top), s)
+        if align == 'center': c.drawCentredString(x, Y(y_top), s)
+        elif align == 'right': c.drawRightString(x, Y(y_top), s)
+        else: c.drawString(x, Y(y_top), s)
 
-    def tw(s, font, size):
-        return c.stringWidth(_safe_str(s), font or RF, size)
+    def tw(s, font, size): return c.stringWidth(_safe_str(s), font or FONT_MONO, size)
 
-    def section_hdr(y_top, label):
-        rfill(MX, y_top, 3, 12, CYAN)
-        txt(MX + 7, y_top + 9.5, label, font=BF, size=7, color=WHITE)
-
-    def mini_bar(x, y_top, w, h, pct, fg=None, bg=BORDER_SUBTLE):
-        if fg is None:
-            fg = CYAN
+    def mini_bar(x, y_top, w, h, pct, fg=None, bg=None):
+        if fg is None: fg = CYAN
+        if bg is None: bg = BORDER_LINE
         rfill(x, y_top, w, h, bg)
-        rfill(x, y_top, max(1, w * max(0, min(pct, 1.0))), h, fg)
+        rfill(x, y_top, max(1, w * max(0.0, min(pct, 1.0))), h, fg)
 
     def tri_up(cx, y_top, s, color):
         c.setFillColor(color)
@@ -432,19 +441,19 @@ def generate_pdf_reportlab(report_data: dict) -> bytes:
     def diamond(cx, cy_top, s, color):
         c.setFillColor(color)
         p = c.beginPath()
-        p.moveTo(cx,     Y(cy_top - s)); p.lineTo(cx + s, Y(cy_top))
-        p.lineTo(cx,     Y(cy_top + s)); p.lineTo(cx - s, Y(cy_top))
+        p.moveTo(cx, Y(cy_top - s)); p.lineTo(cx + s, Y(cy_top))
+        p.lineTo(cx, Y(cy_top + s)); p.lineTo(cx - s, Y(cy_top))
         p.close(); c.drawPath(p, fill=1, stroke=0)
 
     def v_logo(x, y_top, sc=1.0):
         c.setFillColor(CYAN)
         p = c.beginPath()
-        p.moveTo(x,          Y(y_top));         p.lineTo(x + 7*sc,   Y(y_top + 12*sc))
-        p.lineTo(x + 10*sc,  Y(y_top +  8*sc)); p.lineTo(x + 7*sc,   Y(y_top + 16*sc))
-        p.lineTo(x + 4*sc,   Y(y_top +  8*sc))
+        p.moveTo(x,          Y(y_top));         p.lineTo(x + 7*sc,  Y(y_top + 12*sc))
+        p.lineTo(x + 10*sc,  Y(y_top +  8*sc)); p.lineTo(x + 7*sc,  Y(y_top + 16*sc))
+        p.lineTo(x +  4*sc,  Y(y_top +  8*sc))
         p.close(); c.drawPath(p, fill=1, stroke=0)
 
-    # ── données ────────────────────────────────────────────────────
+    # ── data extraction ────────────────────────────────────────────
     athlete    = _safe_str(report_data.get('athlete_name', 'Athlete'))
     race_name  = _safe_str(report_data.get('race_name', 'Course')).upper()
     race_date  = _safe_str(report_data.get('race_date', ''))
@@ -469,7 +478,7 @@ def generate_pdf_reportlab(report_data: dict) -> bytes:
     elev_prof  = report_data.get('elevation_profile') or []
     gpx_pts    = int(report_data.get('gpx_point_count') or 0)
     report_id  = _safe_str(report_data.get('report_id', 'RPT-0000-0000-XX'))
-    version    = _safe_str(report_data.get('version', 'v3.5  BSL 1.1'))
+    version    = _safe_str(report_data.get('version', 'v3.5'))
 
     MONTHS = ['','JANVIER','FEVRIER','MARS','AVRIL','MAI','JUIN',
               'JUILLET','AOUT','SEPTEMBRE','OCTOBRE','NOVEMBRE','DECEMBRE']
@@ -480,315 +489,304 @@ def generate_pdf_reportlab(report_data: dict) -> bytes:
     except Exception:
         race_date_str = race_date.upper() if race_date else ''
 
-    elev_str = f"{elev_gain:,}".replace(',', ' ')
+    elev_str   = f"{elev_gain:,}".replace(',', ' ')
+    fat_str    = ("+" if fat_idx >= 0 else "") + f"{fat_idx:.1f}%"
+    _score_col = CYAN if score >= 80 else WARN
+
+    if not pat_text:
+        _pat_defaults = {
+            'STABLE':         "Effort regulier. Aucun signal de decrochage physiologique detecte.",
+            'DRIFT-CARDIO':   "Derive cardiaque progressive detectee. Effort soutenu au-dela du seuil.",
+            'DRIFT-NEURO':    "Derive neuromusculaire. Fatigue musculaire dominante sur la seconde moitie.",
+            'COLLAPSE':       "Effondrement physiologique. Effort non soutenable sur la duree totale.",
+            'NEGATIVE_SPLIT': "Progression de l effort. Seconde moitie plus rapide, gestion optimale.",
+        }
+        pat_text = _pat_defaults.get(
+            pattern,
+            "Analyse du pattern d effort cardiaque et metabolique sur la course."
+        )
 
     # ════════════════════════════════════════════════════════════════
-    # FOND PLEINE PAGE
+    # BACKGROUND
     # ════════════════════════════════════════════════════════════════
-    rfill(0, 0, PW, PH, DEEP_NAVY)
+    rfill(0, 0, PW, PH, BG_VOID)
 
     # ════════════════════════════════════════════════════════════════
-    # [1] HEADER  y=20, h=60
+    # [1] HEADER  y=0, h=60
     # ════════════════════════════════════════════════════════════════
-    H1y, H1h = 20, 60
-    rfill(0, H1y, PW, H1h, PANEL_DARK)
-    hline(H1y + H1h, 0, PW, BORDER_SUBTLE)
+    rfill(0, 0, PW, 60, BG_PANEL)
+    hline(60, 0, PW, BORDER_LINE, 1.0)
 
     C1w, C3w = 132, 132
     C2w = CW - C1w - C3w
-    C1x, C2x, C3x = MX, MX + C1w, MX + C1w + C2w
-    vline(C2x, H1y + 8, H1h - 16, BORDER_SUBTLE)
-    vline(C3x, H1y + 8, H1h - 16, BORDER_SUBTLE)
+    C1x = MX
+    C2x = MX + C1w
+    C3x = MX + C1w + C2w
+    vline(C2x, 8, 52, BORDER_LINE, 0.5)
+    vline(C3x, 8, 52, BORDER_LINE, 0.5)
 
-    # Col 1 — logo + wordmark
-    v_logo(C1x + 8, H1y + 10, sc=1.8)
-    txt(C1x + 36, H1y + 30, "VERTEX",                  font=BF, size=18, color=WHITE)
-    txt(C1x + 36, H1y + 44, "PERFORMANCE INTELLIGENCE", font=RF, size=6,  color=GREY_LIGHT)
+    # Col 1 — logo + brand
+    v_logo(C1x + 6, 12, sc=1.8)
+    txt(C1x + 36, 32, "VERTEX",             font=FONT_BOLD, size=18, color=FG_PRIMARY)
+    txt(C1x + 36, 46, "PERFORMANCE INTEL.", font=FONT_MONO, size=6,  color=FG_GHOST)
 
-    # Col 2 — titre course
-    txt(C2x + 8, H1y + 13, "// RAPPORT D'ANALYSE //", font=RF, size=6, color=GREY_LIGHT)
-    rn = race_name[:36] if len(race_name) > 36 else race_name
-    txt(C2x + 8, H1y + 30, rn, font=BF, size=12, color=WHITE)
-    tri_up(C2x + 12, H1y + 38, 3, GOLD)
+    # Col 2 — centred race info
+    c2_cx = C2x + C2w / 2
+    txt(c2_cx, 16, "// RAPPORT D'ANALYSE //", font=FONT_MONO, size=6, color=FG_GHOST,   align='center')
+    rn = race_name[:34] if len(race_name) > 34 else race_name
+    txt(c2_cx, 34, rn, font=FONT_BOLD, size=14,                       color=FG_PRIMARY, align='center')
     info_line = f"{athlete}  -  {race_date_str}" if race_date_str else athlete
-    txt(C2x + 20, H1y + 45, info_line, font=RF, size=7.5, color=WHITE)
+    txt(c2_cx, 48, info_line, font=FONT_MONO, size=7.5,               color=FG_BODY,    align='center')
 
-    # Col 3 — métadonnées
-    txt(C3x + 6, H1y + 13, f"// {report_id} //", font=RF, size=6,   color=GREY_LIGHT)
-    txt(C3x + 6, H1y + 23, version,               font=RF, size=6.5, color=GREY_LIGHT)
-    rfill(C3x + 6, H1y + 27, 82, 12, PANEL_DARK)
-    c.setFillColor(CYAN); c.setFont(RF, 7)
-    c.drawString(C3x + 10, Y(H1y + 36), "o")
-    txt(C3x + 19, H1y + 36, "ANALYSE LOCALE", font=RF, size=6, color=CYAN)
+    # Col 3 — report meta + LOCAL badge
+    txt(C3x + 6, 15, f"// {report_id} //", font=FONT_MONO, size=6, color=FG_GHOST)
+    txt(C3x + 6, 25, version,              font=FONT_MONO, size=6, color=FG_GHOST)
+    _badge_w = tw("LOCAL", FONT_MONO, 6) + 10
+    c.setStrokeColor(CYAN); c.setLineWidth(0.7)
+    c.rect(C3x + 6, Y(40), _badge_w, 11, fill=0, stroke=1)
+    txt(C3x + 11, 37, "LOCAL", font=FONT_MONO, size=6, color=CYAN)
     if gpx_pts:
-        txt(C3x + 6, H1y + 49, f"GPX  {gpx_pts:,} pts".replace(',', ' '), font=RF, size=6.5, color=GREY_LIGHT)
+        txt(C3x + 6, 52, f"GPX  {gpx_pts:,} pts".replace(',', ' '), font=FONT_MONO, size=6, color=FG_GHOST)
 
     # ════════════════════════════════════════════════════════════════
-    # [2] BANDEAU METRIQUES  y=82, h=52
+    # [2] STAT STRIP  y=62, h=38
     # ════════════════════════════════════════════════════════════════
-    B2y, B2h = H1y + H1h + 2, 52
-    rfill(0, B2y, PW, B2h, PANEL_DARK)
-    hline(B2y + B2h, 0, PW, BORDER_SUBTLE)
+    rfill(0, 62, PW, 38, BG_PANEL)
+    hline(100, 0, PW, BORDER_LINE, 1.0)
 
-    Mw = CW / 3
+    _Sw = CW / 3
     for i, (lbl, val, unit) in enumerate([
         ("DISTANCE",         f"{dist_km:.1f}", "km"),
         ("DENIVELE POSITIF", elev_str,          "m D+"),
         ("TEMPS",            total_time,         ""),
     ]):
-        mx = MX + i * Mw
+        sx = MX + i * _Sw
         if i > 0:
-            vline(mx, B2y + 6, B2h - 12, BORDER_SUBTLE)
-        txt(mx + 8, B2y + 13, lbl, font=RF, size=6, color=GREY_LIGHT)
-        txt(mx + 8, B2y + 40, val, font=BF, size=28, color=CYAN)
+            vline(sx, 68, 26, BORDER_LINE, 0.5)
+        txt(sx + 8, 74, lbl, font=FONT_MONO, size=6, color=FG_WHISPER)
+        txt(sx + 8, 94, val, font=FONT_BOLD, size=20, color=CYAN)
         if unit:
-            txt(mx + 8 + tw(val, BF, 28) + 3, B2y + 38, unit, font=RF, size=10, color=GREY_LIGHT)
+            txt(sx + 8 + tw(val, FONT_BOLD, 20) + 3, 92, unit, font=FONT_MONO, size=8, color=FG_DIM)
 
     # ════════════════════════════════════════════════════════════════
-    # [3] RESULTAT GLOBAL  y=136, h=100
+    # [3] HERO SCORE  y=102, h=105
     # ════════════════════════════════════════════════════════════════
-    B3y, B3h = B2y + B2h + 2, 100
-    section_hdr(B3y, "RESULTAT GLOBAL")
+    rfill(0, 102, PW, 105, BG_PANEL_WARM)
+    hline(102, 0, PW, CYAN, 2.0)
 
-    Bly, Blh = B3y + 14, B3h - 14
-    rfill(MX, Bly, CW, Blh, PANEL_DARK)
+    HERO_COL_W = 190
+    txt(MX + 10, 116, "SCORE VERTEX", font=FONT_MONO, size=6, color=FG_GHOST)
 
-    SCW = int(CW * 0.28)
-    vline(MX + SCW, Bly + 6, Blh - 12, BORDER_SUBTLE)
-    txt(MX + 10, Bly + 13, "SCORE VERTEX", font=RF, size=6, color=GREY_LIGHT)
     score_str = str(score) if score else "--"
-    _score_pdf_color = CYAN if score >= 80 else GOLD
-    c.setFont(BF, 46); c.setFillColor(_score_pdf_color)
-    c.drawString(MX + 10, Y(Bly + 66), score_str)
-    txt(MX + 10 + tw(score_str, BF, 46) + 2, Bly + 64, "/100", font=RF, size=10, color=GREY_LIGHT)
-    mini_bar(MX + 10, Bly + 72, SCW - 20, 3, score / 100 if score else 0)
+    _score_baseline = 195 if HERO_SIZE == 90 else 183
+    c.setFont(FONT_BLACK, HERO_SIZE)
+    c.setFillColor(_score_col)
+    c.drawString(MX + 10, Y(_score_baseline), score_str)
 
-    VCx = MX + SCW + 10
-    # Badges
-    bx = VCx
-    for btext, bfont, bcol in [
-        (f"VERDICT  {_get_verdict_code(verd_label)}", BF, _verdict_rail_color(verd_label)),
-        (f"PATTERN  {pattern}",                       RF, GREY_LIGHT),
-        (f"PROFIL  {prof_type}",                      RF, GREY_LIGHT),
+    # 10-segment progress bar below score (width 160pt, height 4pt)
+    _n_filled = round(score / 10) if score else 0
+    _sw, _sg  = 14, 2
+    for si in range(10):
+        rfill(MX + 10 + si * (_sw + _sg), _score_baseline + 5, _sw, 4,
+              _score_col if si < _n_filled else BG_VOID)
+
+    # right column — badges + verdict
+    RCx = MX + HERO_COL_W
+    vline(RCx, 108, 93, BORDER_LINE, 0.5)
+
+    bx = RCx + 8
+    for btext, bfcol in [
+        (_get_verdict_code(verd_label), _verdict_rail_color(verd_label)),
+        (pattern,                        FG_GHOST),
+        (prof_type,                      FG_GHOST),
     ]:
-        bw = tw(btext, bfont, 7) + 10
-        c.setStrokeColor(bcol); c.setLineWidth(0.7)
-        c.rect(bx, Y(Bly + 17), bw, 12, fill=0, stroke=1)
-        txt(bx + 4, Bly + 13, btext, font=bfont, size=7, color=bcol)
-        bx += bw + 5
+        bw_i = tw(btext, FONT_BOLD, 7) + 10
+        c.setStrokeColor(bfcol); c.setLineWidth(0.7)
+        c.rect(bx, Y(130), bw_i, 12, fill=0, stroke=1)
+        txt(bx + 5, 127, btext, font=FONT_BOLD, size=7, color=bfcol)
+        bx += bw_i + 5
 
-    VTOP = Bly + 28
-    tri_up(VCx + 5, VTOP + 2, 4, _verdict_rail_color(verd_label))
-    vl_disp = verd_label[:34]
-    txt(VCx + 14, VTOP + 8, vl_disp, font=BF, size=15, color=WHITE)
+    txt(RCx + 8, 149, verd_label[:34], font=FONT_BOLD, size=H3_SIZE, color=FG_PRIMARY)
     if verd_text:
-        for i, line in enumerate(_wrap_text(verd_text, 56)[:3]):
-            txt(VCx, VTOP + 24 + i * 11, line, font=RF, size=8, color=WHITE)
+        for i, line in enumerate(_wrap_text(verd_text, 52)[:3]):
+            txt(RCx + 8, 167 + i * 12, line, font=FONT_MONO, size=8, color=FG_BODY)
 
     # ════════════════════════════════════════════════════════════════
-    # [4] METRIQUES CLES  y≈238, h=78
+    # [4] 4 METRIC CARDS  y=209, h=58
     # ════════════════════════════════════════════════════════════════
-    B4y, B4h = B3y + B3h + 2, 78
-    section_hdr(B4y, "METRIQUES CLES")
-
-    C4y, C4h = B4y + 14, B4h - 14
-    Kw = CW / 4
-    fat_col = CYAN if abs(fat_idx) < 10 else GOLD
-    fat_str = ("+" if fat_idx >= 0 else "") + f"{fat_idx:.0f}"
-    cards4 = [
-        ("ALLURE AJUSTEE RELIEF", adj_pace,                     "/km",  "Allure normalisee pour le denivele.",           CYAN),
-        ("FC MOYENNE",           str(avg_hr) if avg_hr else "--","bpm",  "Effort en zone tempo/seuil.",                  CYAN),
-        ("DENIVELE POSITIF",     elev_str,                      "m D+", f"{elev_gain/max(dist_km,0.01):.0f} m/km",      CYAN),
-        ("INDICE DE FATIGUE",    fat_str,                        "%",    "Derive contenue" if abs(fat_idx)<10 else "Derive detectee", fat_col),
+    _cgap = 8
+    _cw   = (CW - 3 * _cgap) / 4
+    _cards = [
+        ("ALLURE AJUSTEE RELIEF", adj_pace,                       "/km", "Allure normalisee relief",  CYAN),
+        ("FC MOYENNE",            str(avg_hr) if avg_hr else "--", "bpm", "Effort cardio moyen",       CYAN),
+        ("PROFIL",                prof_type,                       "",    "",                          CYAN),
+        ("INDICE DE FATIGUE",     fat_str,                         "",    "Derive cardio/metabolique", WARN),
     ]
-    for i, (lbl, val, unit, sub, col) in enumerate(cards4):
-        cx = MX + i * Kw
-        rfill(cx, C4y, Kw, C4h, PANEL_DARK)
-        rfill(cx, C4y, Kw, 2, col)
-        if i > 0:
-            vline(cx, C4y, C4h, BORDER_SUBTLE, 0.3)
-        txt(cx + 5, C4y + 11, lbl, font=RF, size=6, color=GREY_LIGHT)
-        txt(cx + 5, C4y + 34, val, font=BF, size=20, color=col)
-        txt(cx + 5 + tw(val, BF, 20) + 2, C4y + 32, unit, font=RF, size=8, color=GREY_LIGHT)
-        for j, sl in enumerate(_wrap_text(sub, 24)[:2]):
-            txt(cx + 5, C4y + 47 + j * 9, sl, font=RF, size=6, color=GREY_LIGHT)
+    for i, (lbl, val, unit, sub, col) in enumerate(_cards):
+        cx = MX + i * (_cw + _cgap)
+        rfill(cx, 209, _cw, 58, BG_PANEL)
+        rfill(cx, 209, _cw, 2,  col)
+        txt(cx + 6, 221, lbl, font=FONT_MONO, size=6,      color=FG_WHISPER)
+        txt(cx + 6, 248, val, font=FONT_BOLD, size=MV_SIZE, color=col)
+        if unit:
+            txt(cx + 6 + tw(val, FONT_BOLD, MV_SIZE) + 3, 246, unit, font=FONT_MONO, size=7, color=FG_DIM)
+        if sub:
+            txt(cx + 6, 260, sub, font=FONT_MONO, size=5.5, color=FG_GHOST)
 
     # ════════════════════════════════════════════════════════════════
-    # [5] PROFIL EFFORT Q1->Q4  y≈318, h=104
+    # [5] QUARTILES TABLE  y=269, h=110
     # ════════════════════════════════════════════════════════════════
-    B5y, B5h = B4y + B4h + 2, 104
-    section_hdr(B5y, "PROFIL D'EFFORT  Q1 -> Q4")
+    QC = [50, 80, 60, 140]
+    QC.append(CW - sum(QC))   # ETAT col fills remainder
+    QHH = 16
+    QRH = (110 - QHH) / 4    # ≈ 23.5
 
-    T5y, T5h = B5y + 14, B5h - 14
-    QCW = [50, 78, 78, 148, int(CW) - 354]   # total ≈ CW
-
-    HDR_H = 16
-    ROW_H = (T5h - HDR_H) / 4
-
-    rfill(MX, T5y, CW, HDR_H, DEEP_NAVY)
+    rfill(MX, 269, CW, QHH, BG_VOID)
     qcx = MX
-    for ch, cw_i in zip(["QUARTILE","ALLURE","FC MOY","TENDANCE","ETAT"], QCW):
-        txt(qcx + 4, T5y + 11, ch, font=BF, size=6, color=GREY_LIGHT)
-        qcx += cw_i
+    for ch, cw_q in zip(["QUARTILE", "ALLURE", "FC", "PROGRESSION", "ETAT"], QC):
+        txt(qcx + 4, 280, ch, font=FONT_MONO, size=6, color=FG_WHISPER)
+        qcx += cw_q
 
-    STATE_CFG = {
-        'LANCEMENT PROPRE': (CYAN,       CYAN_BLEND,  '^'),
-        'TENU':             (GREY_LIGHT, BORDER_SUBTLE,'='),
-        'SOLIDE':           (CYAN,       CYAN_BLEND,  '^'),
-        'FINISH SOLIDE':    (GOLD,       GOLD_BLEND,  '^'),
-        'DECROCHAGE':       (HexColor('#C84850'), HexColor('#200810'), 'v'),
-    }
     for ri in range(4):
-        ry = T5y + HDR_H + ri * ROW_H
-        rfill(MX, ry, CW, ROW_H, PANEL_DARK if ri % 2 == 0 else ROW_ALT)
-        hline(ry + ROW_H, MX, MX + CW, BORDER_SUBTLE, 0.3)
-        q = quartiles[ri] if ri < len(quartiles) else {}
+        ry      = 269 + QHH + ri * QRH
+        row_mid = ry + QRH * 0.65
+        rfill(MX, ry, CW, QRH, BG_PANEL if ri % 2 == 0 else BG_VOID)
+        hline(ry + QRH, MX, MX + CW, BORDER_LINE, 0.3)
+        q   = quartiles[ri] if ri < len(quartiles) else {}
         qcx = MX
-        my = ry + ROW_H * 0.65
 
-        txt(qcx + 4, my, q.get('label', f'Q{ri+1}'), font=BF, size=10, color=CYAN)
-        qcx += QCW[0]
-        pace = q.get('pace', '--')
-        txt(qcx + 4, my, pace, font=RF, size=9, color=WHITE)
-        txt(qcx + 4 + tw(pace, RF, 9) + 2, my - 1, "/km", font=RF, size=6.5, color=GREY_LIGHT)
-        qcx += QCW[1]
-        hr_s = str(q.get('hr')) if q.get('hr') else "--"
-        txt(qcx + 4, my, hr_s, font=RF, size=9, color=WHITE)
-        txt(qcx + 4 + tw(hr_s, RF, 9) + 2, my - 1, "bpm", font=RF, size=6.5, color=GREY_LIGHT)
-        qcx += QCW[2]
-        delta = float(q.get('delta_pct') or 0)
-        bar_pct = 0.55 + (delta / 100) if ri > 0 else 0.55
-        mini_bar(qcx + 4, ry + ROW_H * 0.3, QCW[3] - 54, 4, max(0.05, min(bar_pct, 0.95)))
+        txt(qcx + 4, row_mid, q.get('label', f'Q{ri+1}'), font=FONT_BOLD, size=9, color=FG_PRIMARY)
+        qcx += QC[0]
+
+        txt(qcx + 4, row_mid, _safe_str(q.get('pace', '--')), font=FONT_MONO, size=7, color=CYAN)
+        qcx += QC[1]
+
+        hr_v = q.get('hr')
+        txt(qcx + 4, row_mid, str(int(hr_v)) if hr_v else "--", font=FONT_MONO, size=7, color=FG_MUTE)
+        qcx += QC[2]
+
+        delta   = float(q.get('delta_pct') or 0)
+        bar_pct = (delta + 15) / 20.0 if ri > 0 else 0.75
+        mini_bar(qcx + 4, ry + QRH * 0.35, 60, 4, max(0.0, min(bar_pct, 1.0)))
         dt_s = "baseline" if ri == 0 else (f"+{delta:.1f}%" if delta >= 0 else f"{delta:.1f}%")
-        txt(qcx + QCW[3] - 46, my, dt_s, font=RF, size=6.5, color=GREY_LIGHT)
-        qcx += QCW[3]
-        st_raw = q.get('state', 'TENU').upper()
-        sc_col, sc_bg, sc_icon = STATE_CFG.get(st_raw, (GREY_LIGHT, BORDER_SUBTLE, '='))
-        rfill(qcx + 3, ry + ROW_H * 0.12, QCW[4] - 6, ROW_H * 0.76, sc_bg)
-        txt(qcx + 7, my, f"{sc_icon} {st_raw}", font=BF, size=6.5, color=sc_col)
+        txt(qcx + 68, row_mid, dt_s, font=FONT_MONO, size=6.5, color=FG_DIM)
+        qcx += QC[3]
+
+        st_raw = _safe_str(q.get('state', 'TENU')).upper()
+        if any(x in st_raw for x in ('SOLIDE', 'PROPRE', 'LANCEMENT')):
+            st_col = CYAN
+        elif 'DECROCHAGE' in st_raw:
+            st_col = CRIT
+        else:
+            st_col = WARN
+        txt(qcx + 5, row_mid, st_raw, font=FONT_MONO, size=6, color=st_col)
+
+    c.setStrokeColor(BORDER_LINE); c.setLineWidth(1.0)
+    c.rect(MX, Y(379), CW, 110, fill=0, stroke=1)
+    hline(379, MX, MX + CW, BORDER_LINE, 1.0)
 
     # ════════════════════════════════════════════════════════════════
-    # [6] LECTURE PATTERN  y≈424, h=66
+    # [6] PATTERN BLOCK  y=381, h=52
     # ════════════════════════════════════════════════════════════════
-    B6y, B6h = B5y + B5h + 2, 66
-    section_hdr(B6y, "LECTURE DU PATTERN")
+    rfill(MX, 381, CW, 52, BG_PANEL_WARM)
+    rfill(MX, 381, 3,  52, CYAN)
 
-    P6y, P6h = B6y + 14, B6h - 14
-    rfill(MX, P6y, CW, P6h, PANEL_DARK)
-    rfill(MX, P6y, 3, P6h, _verdict_rail_color(verd_label))
+    PAT_LW = 130
+    txt(MX + 12, 399, pattern, font=FONT_BOLD, size=H2_SIZE, color=CYAN)
+    vline(MX + PAT_LW, 385, 44, BORDER_LINE, 0.5)
+    Ptx = MX + PAT_LW + 10
 
-    P6Cw = int(CW * 0.26)
-    txt(MX + 10, P6y + 12, "PATTERN DETECTE", font=RF, size=6, color=GREY_LIGHT)
-    txt(MX + 10, P6y + 28, pattern,            font=BF, size=14, color=CYAN)
-    for bi in range(4):
-        rfill(MX + 10 + bi * 9, P6y + 36, 6, 12, CYAN)
-
-    vline(MX + P6Cw, P6y + 4, P6h - 8, BORDER_SUBTLE, 0.3)
-    Ptx = MX + P6Cw + 10
     if pat_title:
-        txt(Ptx, P6y + 16, pat_title.upper()[:50], font=BF, size=11, color=WHITE)
-    if pat_text:
-        for i, line in enumerate(_wrap_text(pat_text, 58)[:3]):
-            txt(Ptx, P6y + 31 + i * 10, line, font=RF, size=7.5, color=WHITE)
+        txt(Ptx, 396, pat_title.upper()[:52], font=FONT_BOLD, size=10, color=FG_PRIMARY)
+    for i, line in enumerate(_wrap_text(pat_text, 58)[:3]):
+        txt(Ptx, (408 if pat_title else 396) + i * 10, line, font=FONT_MONO, size=7, color=FG_BODY)
 
     # ════════════════════════════════════════════════════════════════
-    # [7] POUR LA SUITE  y≈492, h=112
+    # [7] RECOMMANDATIONS  y=435, h=72
     # ════════════════════════════════════════════════════════════════
-    B7y, B7h = B6y + B6h + 2, 112
-    section_hdr(B7y, "POUR LA SUITE")
+    _rw = (CW - 8) / 2
 
-    S7y, S7h = B7y + 14, B7h - 14
-    HW = (CW - 3) / 2
-
-    # Card gauche INSIGHT
-    rfill(MX, S7y, HW, S7h, PANEL_DARK)
-    rfill(MX, S7y, 3, S7h, CYAN)
-    diamond(MX + 12, S7y + 10, 4, CYAN)
-    txt(MX + 20, S7y + 12, "INSIGHT FORT", font=BF, size=6, color=CYAN)
+    # left — ANALYSE
+    rfill(MX, 435, _rw, 72, BG_PANEL)
+    rfill(MX, 435, 3,   72, CYAN)
+    txt(MX + 8, 446, "ANALYSE", font=FONT_MONO, size=5, color=FG_GHOST)
     if ins_title:
-        for i, il in enumerate(_wrap_text(ins_title.upper(), 32)[:2]):
-            txt(MX + 8, S7y + 26 + i * 12, il, font=BF, size=9, color=WHITE)
-    if ins_text:
-        for i, line in enumerate(_wrap_text(ins_text, 36)[:5]):
-            txt(MX + 8, S7y + 52 + i * 9, line, font=RF, size=7, color=WHITE)
+        txt(MX + 8, 458, ins_title.upper()[:40], font=FONT_BOLD, size=10, color=FG_PRIMARY)
+        for i, line in enumerate(_wrap_text(ins_text, 38)[:4]):
+            txt(MX + 8, 472 + i * 9, line, font=FONT_MONO, size=7, color=FG_BODY)
+    else:
+        txt(MX + 8, 460, "Donnees insuffisantes pour cette section.", font=FONT_MONO, size=7, color=FG_MUTE)
 
-    # Séparateur GOLD
-    rfill(MX + HW, S7y, 3, S7h, GOLD)
-
-    # Card droite PROGRESSION
-    R7x = MX + HW + 3
-    rfill(R7x, S7y, HW, S7h, PANEL_DARK)
-    rfill(R7x, S7y, 3, S7h, GOLD)
-    diamond(R7x + 12, S7y + 10, 4, GOLD)
-    txt(R7x + 20, S7y + 12, "AXE DE PROGRESSION", font=BF, size=6, color=GOLD)
+    # right — AXE DE PROGRESSION
+    R7x = MX + _rw + 8
+    rfill(R7x, 435, _rw, 72, BG_PANEL)
+    rfill(R7x, 435, 3,   72, WARN)
+    txt(R7x + 8, 446, "AXE DE PROGRESSION", font=FONT_MONO, size=5, color=FG_GHOST)
     if prg_title:
-        for i, pl in enumerate(_wrap_text(prg_title.upper(), 32)[:2]):
-            txt(R7x + 8, S7y + 26 + i * 12, pl, font=BF, size=9, color=WHITE)
-    if prg_text:
-        for i, line in enumerate(_wrap_text(prg_text, 36)[:5]):
-            txt(R7x + 8, S7y + 52 + i * 9, line, font=RF, size=7, color=WHITE)
+        txt(R7x + 8, 458, prg_title.upper()[:40], font=FONT_BOLD, size=10, color=FG_PRIMARY)
+        for i, line in enumerate(_wrap_text(prg_text, 38)[:4]):
+            txt(R7x + 8, 472 + i * 9, line, font=FONT_MONO, size=7, color=FG_BODY)
+    else:
+        txt(R7x + 8, 460, "Donnees insuffisantes pour cette section.", font=FONT_MONO, size=7, color=FG_MUTE)
 
     # ════════════════════════════════════════════════════════════════
-    # [8] PROFIL ELEVATION  y≈606, h=86
+    # [8] ELEVATION STRIP  y=509, h=52
     # ════════════════════════════════════════════════════════════════
-    B8y, B8h = B7y + B7h + 2, 86
-    elev_lbl = f"// PROFIL ELEVATION  {dist_km:.1f} KM  {elev_gain} M D+  {prof_type} //"
-    txt(PW / 2, B8y + 9, elev_lbl, font=RF, size=6, color=GREY_LIGHT, align='center')
+    rfill(MX, 509, CW, 52, BG_PANEL)
+    txt(MX + 4, 517, "// PROFIL ELEVATION //", font=FONT_MONO, size=6, color=FG_GHOST)
 
-    G8y, G8h = B8y + 12, B8h - 12
-    rfill(MX, G8y, CW, G8h, DEEP_NAVY)
+    G8y, G8h = 520, 38
 
     if len(elev_prof) > 3:
         n = len(elev_prof)
-        GH = G8h - 12
-        # fill sous courbe
+        # filled area
         c.saveState()
         fp = c.beginPath()
-        fp.moveTo(MX, Y(G8y + 6 + GH))
+        fp.moveTo(MX, Y(G8y + G8h))
         for i, v in enumerate(elev_prof):
-            fp.lineTo(MX + CW * i / (n - 1), Y(G8y + 6 + GH * (1 - max(0, min(v, 1)))))
-        fp.lineTo(MX + CW, Y(G8y + 6 + GH))
+            fp.lineTo(MX + CW * i / (n - 1), Y(G8y + G8h * (1 - max(0.0, min(v, 1.0)))))
+        fp.lineTo(MX + CW, Y(G8y + G8h))
         fp.close()
         c.setFillColor(HexColor('#0D3A42'))
         c.drawPath(fp, fill=1, stroke=0)
         c.restoreState()
-        # ligne courbe
+        # stroke line
         c.saveState()
         c.setStrokeColor(CYAN); c.setLineWidth(1.5)
         lp = c.beginPath()
         for i, v in enumerate(elev_prof):
             px = MX + CW * i / (n - 1)
-            py = G8y + 6 + GH * (1 - max(0, min(v, 1)))
+            py = G8y + G8h * (1 - max(0.0, min(v, 1.0)))
             if i == 0: lp.moveTo(px, Y(py))
-            else:       lp.lineTo(px, Y(py))
+            else:      lp.lineTo(px, Y(py))
         c.drawPath(lp, fill=0, stroke=1)
         c.restoreState()
-        # marqueurs Q
+        # Q2/Q3/Q4 dashed markers
         for qi in range(1, 4):
             qx = MX + CW * qi / 4
             c.saveState()
-            c.setStrokeColor(GREY_LIGHT); c.setLineWidth(0.5); c.setDash([2, 3])
-            c.line(qx, Y(G8y + 6), qx, Y(G8y + 6 + GH))
+            c.setStrokeColor(WARN); c.setLineWidth(0.5); c.setDash([2, 3])
+            c.line(qx, Y(G8y + 2), qx, Y(G8y + G8h))
             c.restoreState()
-            txt(qx, G8y + 9, f"Q{qi+1}", font=RF, size=6, color=GREY_LIGHT, align='center')
+            txt(qx, G8y + 8, f"Q{qi+1}", font=FONT_MONO, size=6, color=FG_DIM, align='center')
     else:
         txt(MX + CW / 2, G8y + G8h / 2 + 4, "Profil non disponible",
-            font=RF, size=7.5, color=GREY_LIGHT, align='center')
+            font=FONT_MONO, size=7.5, color=FG_DIM, align='center')
 
     # ════════════════════════════════════════════════════════════════
-    # [9] FOOTER
+    # [9] FOOTER  absolute bottom, h=42
     # ════════════════════════════════════════════════════════════════
-    F9y = PH - 20 - 42
-    hline(F9y, 0, PW, BORDER_SUBTLE)
-    txt(MX, F9y + 10, "// DISCLAIMER MEDICAL //", font=BF, size=6, color=GREY_LIGHT)
+    F9y = PH - 42
+    hline(F9y, 0, PW, BORDER_LINE, 1.0)
+    txt(MX, F9y + 10, "// DISCLAIMER MEDICAL //", font=FONT_MONO, size=6, color=FG_DIM)
     disc = ("Score experimental - modele physiologique Minetti 2002 + decouplage cardiaque. "
             "Non valide cliniquement. Usage personnel et pedagogique uniquement. "
-            "Ne remplace pas un suivi medical ou un test d'effort encadre.")
-    for i, dl in enumerate(_wrap_text(disc, 80)[:3]):
-        txt(MX, F9y + 19 + i * 7, dl, font=RF, size=5.5, color=GREY_LIGHT)
+            "Ne remplace pas un suivi medical ou un test d effort encadre.")
+    for i, dl in enumerate(_wrap_text(disc, 82)[:3]):
+        txt(MX, F9y + 19 + i * 7, dl, font=FONT_MONO_LIGHT, size=5.5, color=FG_TRACE)
     v_logo(PW - MX - 56, F9y + 6, sc=1.1)
-    txt(PW - MX - 44, F9y + 16, "VERTEX", font=BF, size=8, color=WHITE)
-    txt(PW - MX - 52, F9y + 28, "(c) 2026  BSL 1.1", font=RF, size=5.5, color=GREY_LIGHT)
+    txt(PW - MX - 44, F9y + 16, "VERTEX",            font=FONT_BOLD, size=8,   color=FG_PRIMARY)
+    txt(PW - MX - 52, F9y + 28, "(c) 2026  BSL 1.1", font=FONT_MONO, size=5.5, color=FG_GHOST)
 
     c.showPage()
     c.save()
